@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f8f1">
+  <meta name="description" content="Sort, group, and join photos on your device with Pairwise.">
+  <title>Pairwise · Mobile preview</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="app-bar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span>pairwise<span class="brand-dot">.</span></div>
+      <span class="privacy"><i></i> On-device</span>
+    </header>
+    <main>
+      <section class="intro" aria-labelledby="title">
+        <h1 id="title">Join images</h1>
+        <p>Combine photos side by side or stack them into a single image.</p>
+      </section>
+      <section id="dropzone" class="image-panel" aria-labelledby="image-title">
+        <div class="section-top">
+          <h2 id="image-title">Your images <span id="count" hidden></span></h2>
+          <button class="text-button" id="clear" hidden>Clear all</button>
+        </div>
+        <div id="empty-queue">
+          <div class="photo-stack" aria-hidden="true">
+            <div class="photo one"></div><div class="photo two"></div><span class="photo-plus">+</span>
+          </div>
+          <button type="button" class="button add-primary" id="browse"><span aria-hidden="true">+</span> Add images</button>
+          <button type="button" class="text-button sample" id="sample">Try with sample images</button>
+        </div>
+        <div id="queue" hidden>
+          <p class="hint">Sorted by filename</p>
+          <div id="pair-list"></div>
+          <button type="button" class="button add-secondary" id="add"><span aria-hidden="true">+</span> Add more</button>
+        </div>
+        <input id="files" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.avif,.bmp" multiple hidden>
+      </section>
+
+      <section class="settings" aria-labelledby="layout-title">
+        <h2 id="layout-title">Layout</h2>
+        <div class="direction" role="group" aria-label="Join direction">
+          <button id="vertical" aria-pressed="true" class="direction-option">
+            <span class="diagram vertical" aria-hidden="true"><i></i><i></i></span>
+            <span><strong>Vertical</strong><small>Top to bottom</small></span>
+          </button>
+          <button id="horizontal" aria-pressed="false" class="direction-option">
+            <span class="diagram horizontal" aria-hidden="true"><i></i><i></i></span>
+            <span><strong>Horizontal</strong><small>Side by side</small></span>
+          </button>
+        </div>
+        <div class="group-row">
+          <div><label for="group-size">Images per group</label><p class="hint" id="group-help">The last group can have fewer.</p></div>
+          <div class="stepper">
+            <button id="decrease" aria-label="Fewer images per group">−</button>
+            <input id="group-size" type="number" min="2" step="1" value="2" inputmode="numeric" aria-describedby="group-help">
+            <button id="increase" aria-label="More images per group">+</button>
+          </div>
+        </div>
+      </section>
+
+      <details class="naming">
+        <summary><span><strong>File naming</strong><small id="filename-preview" aria-live="polite"></small></span><i class="chevron" aria-hidden="true"></i></summary>
+        <div class="name-fields">
+          <label for="output-name">Group name</label>
+          <input id="output-name" type="text" maxlength="80" placeholder="e.g. Holiday" autocomplete="off" aria-describedby="name-help">
+          <p class="hint" id="name-help">Optional prefix for the PNG and ZIP filenames.</p>
+          <label for="number-offset">Numbering offset</label>
+          <input id="number-offset" type="number" min="0" max="999999999" step="1" value="0" inputmode="numeric" aria-describedby="offset-help">
+          <p class="hint" id="offset-help">An offset of 10 starts at 011.</p>
+        </div>
+      </details>
+      <p id="status" role="status" aria-live="polite"></p>
+      <section id="results" aria-labelledby="results-title" hidden>
+        <div class="section-top">
+          <div><h2 id="results-title" tabindex="-1">Joined images</h2><p class="hint" id="result-summary"></p></div>
+          <button id="bundle" class="button add-secondary">Save ZIP <span aria-hidden="true">↓</span></button>
+        </div>
+        <div id="result-grid"></div>
+      </section>
+    </main>
+    <footer class="actions">
+      <p id="ready-note" aria-live="polite"></p>
+      <button id="generate" class="button join" disabled>Join images <span aria-hidden="true">→</span></button>
+    </footer>
+  </div>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
