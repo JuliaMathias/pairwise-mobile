@@ -1,11 +1,31 @@
 /** Pure ordering, layout, and ZIP encoding; no network or UI state. */
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
-/** Natural ascending filename order, grouped in user-selected batches. */
-export function sortedGroups(files, count=2) {
-  if (!Number.isInteger(count) || count<2) throw new Error('Choose a whole number of at least 2 images per group.');
-  const sorted = [...files].sort((a,b) => collator.compare(a.name,b.name));
-  return Array.from({length: Math.ceil(sorted.length / count)}, (_,i) => sorted.slice(i*count,i*count+count));
+export function sortByFilename(files) {
+  return [...files].sort((first, second) => collator.compare(first.name, second.name));
 }
+
+export function groupInOrder(files, count = 2) {
+  if (!Number.isInteger(count) || count < 2) throw new Error('Choose a whole number of at least 2 images per group.');
+  return Array.from({ length: Math.ceil(files.length / count) }, (_, index) => files.slice(index * count, (index + 1) * count));
+}
+
+export function sortedGroups(files, count = 2) {
+  return groupInOrder(sortByFilename(files), count);
+}
+
+export function moveImage(files, from, to) {
+  const reordered = [...files];
+  const [image] = reordered.splice(from, 1);
+  reordered.splice(to, 0, image);
+  return reordered;
+}
+
+/** Plan from the retained pixels of each source, with no upscaling. */
+export function composition(images, direction) {
+  const regions = images.map(image => image.crop ?? { x: 0, y: 0, width: image.width, height: image.height });
+  return { ...layout(regions, direction), regions };
+}
+
 /** Preserve original pixels; center smaller images along the shared axis. */
 export function layout(images,direction) {
   const vertical=direction==='vertical';
