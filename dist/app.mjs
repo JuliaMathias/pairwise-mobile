@@ -1,5 +1,8 @@
-import { composition, groupInOrder, makeZip, moveImage, outputFilename, safePrefix, sortByFilename, validOffset } from './core.mjs';
+import { groupInOrder, makeZip, moveImage, outputFilename, safePrefix, sortByFilename, validOffset } from './core.mjs';
 import { createCropEditor } from './crop-editor.mjs';
+import { joinComposition } from './composer.mjs';
+import { downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
+import { createCollage } from './collage.mjs';
 
 const $ = id => document.getElementById(id);
 const groupField = $('group-size');
@@ -7,7 +10,7 @@ const offsetField = $('number-offset');
 const nameField = $('output-name');
 const fileField = $('files');
 const directions = ['vertical', 'horizontal'];
-const busyControls = ['browse', 'sample', 'add', 'clear', 'sort', ...directions, 'group-size', 'output-name', 'number-offset', 'files', 'bundle'];
+const busyControls = ['browse', 'sample', 'add', 'clear', 'sort', ...directions, 'group-size', 'output-name', 'number-offset', 'files', 'bundle', 'join-fill', 'join-color', 'join-border', 'join-border-color'];
 let images = [];
 let outputs = [];
 let direction = 'vertical';
@@ -49,7 +52,7 @@ function updateControls() {
   $('decrease').disabled = busy || size === null || size === 2;
   $('increase').disabled = busy || size === Number.MAX_SAFE_INTEGER;
   const total = Math.ceil(images.length / (size ?? 2));
-  let note = `${total} PNG ${total === 1 ? 'image' : 'images'} · full resolution`;
+  let note = `${total} PNG ${total === 1 ? 'image' : 'images'}`;
   if (busy) note = 'Working…';
   else if (size === null) note = 'Enter a whole number of at least 2';
   else if (!namingValid) note = 'Enter a valid numbering offset';
@@ -60,6 +63,8 @@ function updateControls() {
   $('clear').hidden = images.length === 0;
   $('count').hidden = images.length === 0;
   $('count').textContent = images.length;
+  $('join-color').disabled = busy || $('join-fill').value !== 'solid';
+  $('join-border-color').disabled = busy || Number($('join-border').value) === 0;
   $('sort').disabled = busy || !manualOrder;
   $('order-note').textContent = manualOrder ? 'Custom order' : 'Sorted by filename';
 }
@@ -187,46 +192,6 @@ function renderQueue() {
   renderPreview();
 }
 
-function encodePng(canvas) {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(blob => {
-      if (blob) resolve(blob);
-      else reject(new Error('Could not encode this image.'));
-    }, 'image/png');
-  });
-}
-
-async function sampleFiles() {
-  const scenes = [
-    ['sample-2.png', 300, 200, ['#c6dbc8', '#f4e4a9', '#71917d', '#3c6054']],
-    ['sample-10.png', 250, 220, ['#d9d0e8', '#f7ddb9', '#8c83a5', '#564f75']],
-    ['sample-1.png', 300, 190, ['#efd4ae', '#fff0c7', '#c18368', '#795956']],
-    ['sample-3.png', 290, 210, ['#bedee4', '#f7ebca', '#6f9dad', '#346f82']],
-  ];
-  return Promise.all(scenes.map(async ([name, width, height, [sky, sun, far, near]]) => {
-    const canvas = node('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext('2d');
-    context.fillStyle = sky;
-    context.fillRect(0, 0, width, height);
-    context.fillStyle = sun;
-    context.beginPath();
-    context.arc(width * .68, height * .31, height * .14, 0, Math.PI * 2);
-    context.fill();
-    for (const [color, start, crest, trough] of [[far, .64, .28, .70], [near, .84, .48, .92]]) {
-      context.fillStyle = color;
-      context.beginPath();
-      context.moveTo(0, height * start);
-      context.bezierCurveTo(width * .36, height * crest, width * .45, height * trough, width, height * (start - .07));
-      context.lineTo(width, height);
-      context.lineTo(0, height);
-      context.fill();
-    }
-    return new File([await encodePng(canvas)], name, { type: 'image/png' });
-  }));
-}
-
 async function addFiles(source) {
   if (busy) return;
   setBusy(true);
@@ -234,30 +199,11 @@ async function addFiles(source) {
   const errors = [];
   try {
     const files = typeof source === 'function' ? await source() : source;
-    for (const file of files) {
-      const knownType = /^image\/(png|jpeg|webp|gif|avif|bmp|x-ms-bmp)$/.test(file.type);
-      const knownExtension = /\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(file.name);
-      if (!knownType && !(knownExtension && ['', 'application/octet-stream'].includes(file.type))) {
-        errors.push(`${file.name}: unsupported image type`);
-        continue;
-      }
-      if (file.size > 100 * 1024 * 1024) {
-        errors.push(`${file.name}: larger than 100 MB`);
-        continue;
-      }
-      const url = URL.createObjectURL(file);
-      try {
-        const image = new Image();
-        image.src = url;
-        await image.decode();
-        const { naturalWidth: width, naturalHeight: height } = image;
-        if (width * height > 40_000_000) throw new Error();
-        if (outputs.length) clearOutputs();
-        images.push({ id: nextId++, name: file.name, url, width, height });
-      } catch {
-        URL.revokeObjectURL(url);
-        errors.push(`${file.name}: unreadable or larger than 40 megapixels`);
-      }
+    const decoded = await readPhotos(files);
+    errors.push(...decoded.errors);
+    if (decoded.photos.length) {
+      clearOutputs();
+      images.push(...decoded.photos.map(photo => ({ ...photo, id: nextId++ })));
     }
     if (!manualOrder) images = sortByFilename(images);
     renderQueue();
@@ -270,10 +216,24 @@ async function addFiles(source) {
   }
 }
 
+function joinedPlan(group) {
+  return joinComposition(group, direction, {
+    fill: $('join-fill').value,
+    color: $('join-color').value,
+    border: Number($('join-border').value),
+  });
+}
+
 async function drawComposition(canvas, group, plan, isCurrent = () => true) {
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Canvas is unavailable.');
   context.scale(canvas.width / plan.width, canvas.height / plan.height);
+  if (plan.background) {
+    context.fillStyle = plan.background;
+    context.fillRect(0, 0, plan.width, plan.height);
+  }
+  context.fillStyle = $('join-border-color').value;
+  for (const rect of plan.frame) context.fillRect(...rect);
   for (const [index, source] of group.entries()) {
     if (!isCurrent()) return;
     const image = new Image();
@@ -281,7 +241,8 @@ async function drawComposition(canvas, group, plan, isCurrent = () => true) {
     await image.decode();
     if (!isCurrent()) return;
     const { x, y, width, height } = plan.regions[index];
-    context.drawImage(image, x, y, width, height, ...plan.positions[index], width, height);
+    const destination = plan.sizes[index];
+    context.drawImage(image, x, y, width, height, ...plan.positions[index], destination.width, destination.height);
   }
 }
 
@@ -302,7 +263,7 @@ async function renderPreview() {
   const groups = groupInOrder(images, size);
   previewIndex = Math.min(previewIndex, groups.length - 1);
   const group = groups[previewIndex];
-  const plan = composition(group, direction);
+  const plan = joinedPlan(group);
   const canvas = $('preview-canvas');
   $('preview-size').textContent = `${plan.width} × ${plan.height} px`;
   $('preview-group').textContent = `Group ${previewIndex + 1} of ${groups.length}`;
@@ -340,7 +301,7 @@ $('show-preview').onclick = () => {
 };
 
 async function joinGroup(group, name) {
-  const plan = composition(group, direction);
+  const plan = joinedPlan(group);
   if (!fitsExport(plan)) throw new Error('Output is too large. Try fewer images per group or a tighter crop.');
   const canvas = node('canvas');
   canvas.width = plan.width;
@@ -400,15 +361,8 @@ $('bundle').onclick = async () => {
   setBusy(true);
   message('Preparing your ZIP…');
   try {
-    const url = URL.createObjectURL(await makeZip(outputs));
-    const link = node('a');
     const prefix = safePrefix(nameField.value);
-    link.href = url;
-    link.download = prefix ? `${prefix}.zip` : 'pairwise-images.zip';
-    document.body.append(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    downloadBlob(await makeZip(outputs), prefix ? `${prefix}.zip` : 'pairwise-images.zip');
     message('ZIP download started.');
   } catch (error) {
     message(error.message, true);
@@ -488,3 +442,37 @@ for (const field of [nameField, offsetField]) {
   };
 }
 updateControls();
+
+const fitHints = {
+  transparent: 'Keep original sizes and leave the extra space transparent.',
+  resize: 'Scale proportionally to the widest image for a stack, or the tallest for a row.',
+  solid: 'Keep original sizes and fill the extra space with a color.',
+};
+
+for (const id of ['join-fill', 'join-color', 'join-border', 'join-border-color']) {
+  $(id).oninput = () => {
+    $('join-border-value').textContent = `${$('join-border').value} px`;
+    $('join-fit-hint').textContent = fitHints[$('join-fill').value];
+    $('join-color-row').hidden = $('join-fill').value !== 'solid';
+    clearOutputs();
+    updateControls();
+    renderPreview();
+    message('');
+  };
+}
+
+createCollage();
+
+function showMode() {
+  const mode = location.hash.slice(1);
+  const active = mode === 'join' || mode === 'collage' ? mode : 'home';
+  $('mode-home').hidden = active !== 'home';
+  $('join-mode').hidden = $('join-actions').hidden = active !== 'join';
+  $('collage-mode').hidden = $('collage-actions').hidden = active !== 'collage';
+  $('back-to-modes').hidden = active === 'home';
+  window.scrollTo(0, 0);
+  $(active === 'home' ? 'mode-title' : active === 'join' ? 'title' : 'collage-title').focus({ preventScroll: true });
+}
+
+window.addEventListener('hashchange', showMode);
+showMode();

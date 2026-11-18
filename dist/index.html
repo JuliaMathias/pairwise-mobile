@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f6f8f1">
-  <meta name="description" content="Sort, group, and join photos on your device with Pairwise.">
+  <meta name="description" content="Join photos and make collages on your device with Pairwise.">
   <title>Pairwise · Mobile preview</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -12,11 +12,29 @@
   <div class="shell">
     <header class="app-bar">
       <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i></span>pairwise<span class="brand-dot">.</span></div>
+      <a href="#" id="back-to-modes" hidden>← Modes</a>
       <span class="privacy"><i></i> On-device</span>
     </header>
-    <main>
+    <main id="mode-home" class="mode-home">
+      <section class="intro">
+        <h1 id="mode-title" tabindex="-1">What are we making?</h1>
+      </section>
+      <div class="mode-options">
+        <a class="mode-card" href="#join">
+          <span class="mode-symbol join-symbol" aria-hidden="true"><i></i><i></i></span>
+          <span><strong>Join images</strong><small>Stack photos or line them up side by side.</small></span>
+          <span class="mode-arrow" aria-hidden="true">→</span>
+        </a>
+        <a class="mode-card" href="#collage">
+          <span class="mode-symbol collage-symbol" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span><strong>Make a collage</strong><small>Arrange photos in a grid sized for your export.</small></span>
+          <span class="mode-arrow" aria-hidden="true">→</span>
+        </a>
+      </div>
+    </main>
+    <main id="join-mode" hidden>
       <section class="intro" aria-labelledby="title">
-        <h1 id="title">Join images</h1>
+        <h1 id="title" tabindex="-1">Join images</h1>
         <p>Combine photos side by side or stack them into a single image.</p>
       </section>
       <section id="dropzone" class="image-panel" aria-labelledby="image-title">
@@ -65,6 +83,22 @@
         </div>
       </section>
 
+      <section class="settings appearance" aria-labelledby="join-appearance-title">
+        <h2 id="join-appearance-title">Fit &amp; borders</h2>
+        <label class="control-row" for="join-fill"><span>Image fit</span>
+          <select id="join-fill">
+            <option value="transparent">Transparent padding</option>
+            <option value="resize">Resize to match</option>
+            <option value="solid">Solid background</option>
+          </select>
+        </label>
+        <p class="hint" id="join-fit-hint">Keeps each image at its original size and fills the extra space with transparency.</p>
+        <label class="control-row" id="join-color-row" for="join-color" hidden><span>Background color</span><input id="join-color" type="color" value="#ffffff"></label>
+        <label class="range-row" for="join-border"><span>Border thickness</span><output id="join-border-value">0 px</output>
+          <input id="join-border" type="range" min="0" max="64" value="0">
+        </label>
+        <label class="control-row color-row" for="join-border-color"><span>Border color</span><input id="join-border-color" type="color" value="#ffffff"></label>
+      </section>
       <section id="preview" class="preview" aria-labelledby="preview-title" hidden>
         <div class="section-top">
           <h2 id="preview-title" tabindex="-1">Live preview</h2>
@@ -101,7 +135,60 @@
         <div id="result-grid"></div>
       </section>
     </main>
-    <footer class="actions">
+    <main id="collage-mode" hidden>
+      <section class="intro">
+        <h1 id="collage-title" tabindex="-1">Make a collage</h1>
+        <p>Choose a layout or start by adding photos.</p>
+      </section>
+      <section class="settings collage-settings" aria-labelledby="collage-layout-title">
+        <div class="section-top"><h2 id="collage-layout-title">Layout</h2>
+          <button id="collage-add" class="button add-secondary">+ Add photos</button>
+        </div>
+        <div class="control-row"><label for="collage-count">Photo slots</label>
+          <select id="collage-count"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select>
+        </div>
+        <div id="collage-templates" class="collage-templates" role="group" aria-label="Collage layouts"></div>
+        <label class="control-row collage-size-row" for="collage-size"><span>Export size</span><select id="collage-size"></select></label>
+      </section>
+      <section class="preview collage-preview" aria-labelledby="collage-canvas-title">
+        <div class="section-top"><h2 id="collage-canvas-title" tabindex="-1">Your collage</h2><span class="hint" id="collage-dimensions"></span></div>
+        <p class="hint collage-hint" id="collage-hint">Tap an empty slot to add a photo.</p>
+        <div class="collage-stage"><div class="collage-board" id="collage-board" role="group" aria-label="Collage photo slots"></div></div>
+        <div id="collage-edit" class="collage-edit" hidden>
+          <div class="section-top"><h3 id="collage-selected-name"></h3><button id="collage-reset-view" class="text-button">Reset framing</button></div>
+          <label class="range-row" for="collage-zoom"><span>Zoom</span><output id="collage-zoom-value">100%</output>
+            <input id="collage-zoom" type="range" min="1" max="4" value="1" step="0.01">
+          </label>
+          <div class="collage-edit-buttons">
+            <button id="collage-replace" class="button add-secondary">Replace</button>
+            <button id="collage-swap" class="button add-secondary" aria-pressed="false">Move / swap</button>
+            <button id="collage-remove" class="button add-secondary">Remove</button>
+          </div>
+        </div>
+        <div id="collage-tray" class="collage-tray" hidden>
+          <h3>Unplaced photos</h3><p class="hint">Select a photo, then tap a slot.</p>
+          <div id="collage-tray-items"></div>
+        </div>
+        <div class="collage-tools"><button id="collage-samples" class="text-button">Try with sample images</button><button id="collage-clear" class="text-button" hidden>Clear photos</button></div>
+      </section>
+      <section class="settings appearance" aria-labelledby="collage-border-title">
+        <h2 id="collage-border-title">Borders</h2>
+        <label class="range-row" for="collage-border"><span>Border thickness</span><output id="collage-border-value">12 px</output>
+          <input id="collage-border" type="range" min="0" max="64" value="12">
+        </label>
+        <label class="control-row color-row" for="collage-border-color"><span>Border color</span><input id="collage-border-color" type="color" value="#ffffff"></label>
+      </section>
+      <p id="collage-status" role="status"></p>
+      <input id="collage-files" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/bmp,.png,.jpg,.jpeg,.webp,.gif,.avif,.bmp" hidden>
+    </main>
+    <footer class="actions" id="collage-actions" hidden>
+      <p id="collage-ready" aria-live="polite"></p>
+      <div class="action-buttons">
+        <button id="collage-jump" class="button add-secondary">Preview</button>
+        <button id="collage-save" class="button join" disabled>Save collage <span aria-hidden="true">↓</span></button>
+      </div>
+    </footer>
+    <footer class="actions" id="join-actions" hidden>
       <p id="ready-note" aria-live="polite"></p>
       <div class="action-buttons">
         <button id="show-preview" class="button add-secondary" hidden>Preview</button>
