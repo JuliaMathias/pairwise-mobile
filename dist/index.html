@@ -32,7 +32,11 @@
           <button type="button" class="text-button sample" id="sample">Try with sample images</button>
         </div>
         <div id="queue" hidden>
-          <p class="hint">Sorted by filename</p>
+          <div class="queue-tools">
+            <p class="hint" id="order-note">Sorted by filename</p>
+            <button type="button" class="text-button" id="sort">Sort by name</button>
+          </div>
+          <p class="hint">Drag the grip or use the arrows to reorder.</p>
           <div id="pair-list"></div>
           <button type="button" class="button add-secondary" id="add"><span aria-hidden="true">+</span> Add more</button>
         </div>
@@ -61,6 +65,22 @@
         </div>
       </section>
 
+      <section id="preview" class="preview" aria-labelledby="preview-title" hidden>
+        <div class="section-top">
+          <h2 id="preview-title" tabindex="-1">Live preview</h2>
+          <span id="preview-size" class="hint"></span>
+        </div>
+        <div class="preview-stage" id="preview-stage">
+          <canvas id="preview-canvas" role="img" hidden></canvas>
+          <p id="preview-status" class="hint" role="status"></p>
+        </div>
+        <div id="preview-nav" class="preview-nav">
+          <button id="previous-group" class="icon-button" aria-label="Previous group">‹</button>
+          <p id="preview-group" aria-live="polite"></p>
+          <button id="next-group" class="icon-button" aria-label="Next group">›</button>
+        </div>
+      </section>
+
       <details class="naming">
         <summary><span><strong>File naming</strong><small id="filename-preview" aria-live="polite"></small></span><i class="chevron" aria-hidden="true"></i></summary>
         <div class="name-fields">
@@ -83,9 +103,48 @@
     </main>
     <footer class="actions">
       <p id="ready-note" aria-live="polite"></p>
-      <button id="generate" class="button join" disabled>Join images <span aria-hidden="true">→</span></button>
+      <div class="action-buttons">
+        <button id="show-preview" class="button add-secondary" hidden>Preview</button>
+        <button id="generate" class="button join" disabled>Join images <span aria-hidden="true">→</span></button>
+      </div>
     </footer>
   </div>
+  <dialog id="crop-dialog" aria-labelledby="crop-title">
+    <div class="section-top">
+      <h2 id="crop-title">Crop image</h2>
+      <button id="crop-close" class="icon-button" aria-label="Cancel crop" autofocus>×</button>
+    </div>
+    <p id="crop-filename" class="hint"></p>
+    <p class="hint crop-instructions">Drag the corners to resize, or the center to move.</p>
+    <div class="crop-stage" id="crop-stage">
+      <img id="crop-image" alt="" draggable="false">
+      <div id="crop-box" aria-hidden="true">
+        <span data-corner="nw"></span><span data-corner="ne"></span>
+        <span data-corner="sw"></span><span data-corner="se"></span>
+      </div>
+    </div>
+    <div class="crop-settings">
+      <label for="crop-ratio">Aspect ratio</label>
+      <select id="crop-ratio">
+        <option value="">Free</option><option>1:1</option><option>4:3</option>
+        <option>3:4</option><option>16:9</option><option>9:16</option>
+      </select>
+      <span id="crop-size" class="hint" aria-live="polite"></span>
+    </div>
+    <details class="crop-fine">
+      <summary>Fine-tune in pixels</summary>
+      <div class="crop-fields">
+        <label>Trim left <input id="crop-left" type="number" min="0" required inputmode="numeric"></label>
+        <label>Trim top <input id="crop-top" type="number" min="0" required inputmode="numeric"></label>
+        <label>Trim right <input id="crop-right" type="number" min="0" required inputmode="numeric"></label>
+        <label>Trim bottom <input id="crop-bottom" type="number" min="0" required inputmode="numeric"></label>
+      </div>
+    </details>
+    <div class="crop-actions">
+      <button id="crop-reset" class="button add-secondary">Reset crop</button>
+      <button id="crop-apply" class="button join">Apply crop</button>
+    </div>
+  </dialog>
   <script type="module" src="app.mjs"></script>
 </body>
 </html>

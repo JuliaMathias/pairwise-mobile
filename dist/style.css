@@ -112,3 +112,56 @@ input::-webkit-inner-spin-button { appearance: none; }
   .diagram { flex-basis: 26px; width: 26px; }
   .stepper button { min-width: 32px; }
 }
+
+/* Image editing and live composition */
+.queue-tools, .preview-nav, .crop-settings, .crop-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.queue-tools + .hint { margin: -3px 0 8px; }
+.file-item { gap: 3px; }
+.file-item + .file-item { border-top: 1px solid #edf0eb; }
+.file-label { flex: 1; min-width: 0; margin: 0 3px; }
+.file-name { display: block; }
+.file-item img { flex: 0 0 30px; width: 30px; height: 30px; }
+.icon-button, .file-item .remove { display: grid; place-items: center; background: transparent; color: #426331; border: 0; border-radius: 9px; width: 36px; min-height: 44px; padding: 0; font-size: 19px; flex-shrink: 0; }
+.icon-button:hover:not(:disabled), .file-item .remove:hover:not(:disabled) { background: #edf2e9; }
+.file-item .edit-crop { width: 43px; font-size: 12px; font-weight: 740; }
+.file-item .grip { width: 34px; touch-action: none; cursor: grab; color: #647b59; }
+.file-item .grip:active { cursor: grabbing; }
+.file-item.is-dragging { opacity: .55; }
+.file-item.drag-target { background: #e6f0d5; outline: 1px solid #7e9b60; border-radius: 7px; }
+.preview { border: 1px solid var(--stroke); border-radius: 21px; margin-bottom: 12px; padding: 13px; background: #fff; scroll-margin-top: 10px; }
+.preview-stage { display: grid; place-items: center; min-height: 96px; margin-top: 9px; padding: 12px; background: #eef2e9; border-radius: 12px; }
+#preview-canvas { display: block; max-width: 100%; max-height: 350px; width: auto; height: auto; box-shadow: 0 2px 10px #26382a25; background: repeating-conic-gradient(#dce4d7 0% 25%, #f6f8f1 0% 50%) 50% / 18px 18px; }
+#preview-status:empty { display: none; }
+.preview-nav { margin-top: 3px; }
+.preview-nav p { font-size: 13px; font-weight: 720; }
+.action-buttons { display: flex; gap: 8px; }
+.action-buttons .join { flex: 1; }
+
+#crop-dialog { width: min(calc(100% - 20px), 440px); max-height: calc(100dvh - 20px); padding: 14px; border: 1px solid var(--stroke); border-radius: 20px; background: var(--surface); color: var(--ink); }
+#crop-dialog::backdrop { background: #15231def; opacity: .7; }
+body:has(#crop-dialog[open]) { overflow: hidden; }
+#crop-filename { overflow-wrap: anywhere; }
+.crop-instructions { margin-top: 6px; }
+.crop-stage { position: relative; margin: 12px auto; overflow: hidden; touch-action: none; user-select: none; background: #314137; }
+.crop-stage img { display: block; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+#crop-box { position: absolute; cursor: move; outline: 2px solid var(--green); outline-offset: -2px; box-shadow: 0 0 0 1000px #15241d9c; background: linear-gradient(90deg, transparent calc(100% - 1px), #ffffffa0 0) 0 0 / 33.333% 100%, linear-gradient(transparent calc(100% - 1px), #ffffffa0 0) 0 0 / 100% 33.333%; }
+#crop-box span { position: absolute; display: grid; place-items: center; width: 34px; height: 34px; }
+#crop-box span::after { content: ""; width: 11px; height: 11px; border-radius: 50%; background: var(--green); border: 1px solid #426331; }
+[data-corner="nw"] { top: 0; left: 0; transform: translate(-30%, -30%); cursor: nwse-resize; }
+[data-corner="ne"] { top: 0; right: 0; transform: translate(30%, -30%); cursor: nesw-resize; }
+[data-corner="sw"] { bottom: 0; left: 0; transform: translate(-30%, 30%); cursor: nesw-resize; }
+[data-corner="se"] { bottom: 0; right: 0; transform: translate(30%, 30%); cursor: nwse-resize; }
+.crop-settings { justify-content: flex-start; }
+.crop-settings label, .crop-fine { font-size: 13px; font-weight: 700; }
+.crop-settings select, .crop-fields input { min-height: 44px; border: 1px solid var(--stroke); border-radius: 9px; padding: 5px 8px; background: #fff; color: var(--ink); font: inherit; font-size: 16px; }
+#crop-size { margin-left: auto; white-space: nowrap; }
+.crop-fine { margin: 7px 0; }
+.crop-fine summary { padding: 9px 0; }
+.crop-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.crop-fields input { display: block; width: 100%; margin-top: 3px; }
+.crop-actions .join { width: auto; flex: 1; }
+@media (max-width: 350px) {
+  .file-item { gap: 0; }
+  .file-item .icon-button, .file-item .remove { width: 30px; }
+  .file-item .edit-crop { width: 37px; }
+}

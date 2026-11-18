@@ -1,4 +1,5 @@
-import { sortedGroups, layout, makeZip, outputFilename, safePrefix, validOffset } from './core.mjs';
+import { composition, groupInOrder, makeZip, moveImage, outputFilename, safePrefix, sortByFilename, validOffset } from './core.mjs';
+import { createCropEditor } from './crop-editor.mjs';
 
 const $ = id => document.getElementById(id);
 const groupField = $('group-size');
@@ -6,12 +7,16 @@ const offsetField = $('number-offset');
 const nameField = $('output-name');
 const fileField = $('files');
 const directions = ['vertical', 'horizontal'];
-const busyControls = ['browse', 'sample', 'add', 'clear', ...directions, 'group-size', 'output-name', 'number-offset', 'files', 'bundle'];
+const busyControls = ['browse', 'sample', 'add', 'clear', 'sort', ...directions, 'group-size', 'output-name', 'number-offset', 'files', 'bundle'];
 let images = [];
 let outputs = [];
 let direction = 'vertical';
 let busy = false;
 let nextId = 0;
+let manualOrder = false;
+let previewIndex = 0;
+let previewRevision = 0;
+const openCrop = createCropEditor();
 
 function node(tag, className, text) {
   const element = document.createElement(tag);
@@ -44,7 +49,7 @@ function updateControls() {
   $('decrease').disabled = busy || size === null || size === 2;
   $('increase').disabled = busy || size === Number.MAX_SAFE_INTEGER;
   const total = Math.ceil(images.length / (size ?? 2));
-  let note = `${total} PNG ${total === 1 ? 'image' : 'images'} · original size`;
+  let note = `${total} PNG ${total === 1 ? 'image' : 'images'} · full resolution`;
   if (busy) note = 'Working…';
   else if (size === null) note = 'Enter a whole number of at least 2';
   else if (!namingValid) note = 'Enter a valid numbering offset';
@@ -55,12 +60,16 @@ function updateControls() {
   $('clear').hidden = images.length === 0;
   $('count').hidden = images.length === 0;
   $('count').textContent = images.length;
+  $('sort').disabled = busy || !manualOrder;
+  $('order-note').textContent = manualOrder ? 'Custom order' : 'Sorted by filename';
 }
 
 function setBusy(value) {
   busy = value;
   for (const id of busyControls) $(id).disabled = value;
-  document.querySelectorAll('.remove').forEach(button => { button.disabled = value; });
+  document.querySelectorAll('.file-item button').forEach(button => {
+    button.disabled = value || button.dataset.edge === 'true';
+  });
   updateControls();
 }
 
@@ -71,41 +80,111 @@ function clearOutputs() {
   $('results').hidden = true;
 }
 
+function queueButton(label, icon, action, className = '', atEdge = false) {
+  const button = node('button', `icon-button ${className}`, icon);
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.dataset.edge = String(atEdge);
+  button.disabled = busy || atEdge;
+  button.onclick = action;
+  return button;
+}
+
+function moveInQueue(from, to, focus = '.grip') {
+  if (busy || from === to || to < 0 || to >= images.length) return;
+  const image = images[from];
+  images = moveImage(images, from, to);
+  manualOrder = true;
+  clearOutputs();
+  renderQueue();
+  message(`Moved ${image.name} to position ${to + 1}.`);
+  const row = document.querySelector(`[data-image-id="${image.id}"]`);
+  const control = row.querySelector(focus);
+  (control.disabled ? row.querySelector('.grip') : control).focus();
+}
+
+function enableDrag(grip, item, index) {
+  let drag;
+  let target;
+  grip.onpointerdown = event => {
+    if (!event.isPrimary || event.button !== 0 || busy) return;
+    drag = { id: event.pointerId, y: event.clientY };
+    grip.setPointerCapture(event.pointerId);
+  };
+  grip.onpointermove = event => {
+    if (drag?.id !== event.pointerId || Math.abs(event.clientY - drag.y) < 5 && !target) return;
+    item.classList.add('is-dragging');
+    target?.classList.remove('drag-target');
+    target = [...document.querySelectorAll('.file-item')].find(row => {
+      const bounds = row.getBoundingClientRect();
+      return event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    });
+    if (target !== item) target?.classList.add('drag-target');
+  };
+  grip.onpointerup = event => {
+    if (drag?.id === event.pointerId && target) moveInQueue(index, Number(target.dataset.index));
+  };
+  grip.onlostpointercapture = () => {
+    item.classList.remove('is-dragging');
+    target?.classList.remove('drag-target');
+    target = null;
+    drag = null;
+  };
+  grip.onkeydown = event => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    moveInQueue(index, index + (event.key === 'ArrowUp' ? -1 : 1));
+  };
+}
+
 function renderQueue() {
   const list = $('pair-list');
-  const previousFocus = document.activeElement;
-  const focusedRemoval = previousFocus?.classList.contains('remove');
   list.replaceChildren();
+  if (images.length === 0) manualOrder = false;
   updateControls();
   const size = groupSize();
-  const groups = sortedGroups(images, size ?? Number.MAX_SAFE_INTEGER);
-  groups.forEach((group, index) => {
+  let index = 0;
+  groupInOrder(images, size ?? Number.MAX_SAFE_INTEGER).forEach((group, groupIndex) => {
     const row = node('div', 'pair-row');
-    if (size) row.append(node('span', 'pair-number', `Group ${index + 1} · ${group.length}`));
+    if (size) row.append(node('span', 'pair-number', `Group ${groupIndex + 1} · ${group.length}`));
     for (const image of group) {
+      const position = index++;
       const item = node('div', 'file-item');
+      item.dataset.imageId = image.id;
+      item.dataset.index = position;
       const thumbnail = node('img');
       thumbnail.src = image.url;
       thumbnail.alt = '';
       thumbnail.loading = 'lazy';
+      const label = node('div', 'file-label');
       const name = node('span', 'file-name', image.name);
       name.title = image.name;
-      const remove = node('button', 'remove', '×');
-      remove.disabled = busy;
-      remove.setAttribute('aria-label', `Remove ${image.name}`);
-      remove.onclick = () => {
+      label.append(name);
+      if (image.crop) label.append(node('span', 'hint', 'Cropped'));
+      const grip = queueButton(`Reorder ${image.name} with the arrow keys`, '⠿', null, 'grip');
+      enableDrag(grip, item, position);
+      const crop = queueButton(`Crop ${image.name}`, 'Crop', () => openCrop(image, selection => {
+        image.crop = selection;
+        clearOutputs();
+        renderQueue();
+        document.querySelector(`[data-image-id="${image.id}"] .edit-crop`).focus();
+      }), 'edit-crop');
+      const up = queueButton(`Move ${image.name} up`, '↑', () => moveInQueue(position, position - 1, '.move-up'), 'move-up', position === 0);
+      const down = queueButton(`Move ${image.name} down`, '↓', () => moveInQueue(position, position + 1, '.move-down'), 'move-down', position === images.length - 1);
+      const remove = queueButton(`Remove ${image.name}`, '×', () => {
         URL.revokeObjectURL(image.url);
         images = images.filter(candidate => candidate.id !== image.id);
         clearOutputs();
         renderQueue();
         message('');
-      };
-      item.append(thumbnail, name, remove);
+        $(images.length ? 'add' : 'browse').focus();
+      }, 'remove');
+      item.append(grip, thumbnail, label, crop, up, down, remove);
       row.append(item);
     }
     list.append(row);
   });
-  if (focusedRemoval) $(images.length ? 'add' : 'browse').focus();
+  renderPreview();
 }
 
 function encodePng(canvas) {
@@ -180,6 +259,7 @@ async function addFiles(source) {
         errors.push(`${file.name}: unreadable or larger than 40 megapixels`);
       }
     }
+    if (!manualOrder) images = sortByFilename(images);
     renderQueue();
     message(errors.length ? `Skipped ${errors.length} file(s):\n${errors.join('\n')}` : '', Boolean(errors.length));
   } catch {
@@ -190,29 +270,87 @@ async function addFiles(source) {
   }
 }
 
-async function joinGroup(group, name) {
-  const plan = layout(group, direction);
-  if (plan.width > 16384 || plan.height > 16384 || plan.width * plan.height > 40_000_000) {
-    throw new Error('Output is too large. Try fewer images per group.');
+async function drawComposition(canvas, group, plan, isCurrent = () => true) {
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas is unavailable.');
+  context.scale(canvas.width / plan.width, canvas.height / plan.height);
+  for (const [index, source] of group.entries()) {
+    if (!isCurrent()) return;
+    const image = new Image();
+    image.src = source.url;
+    await image.decode();
+    if (!isCurrent()) return;
+    const { x, y, width, height } = plan.regions[index];
+    context.drawImage(image, x, y, width, height, ...plan.positions[index], width, height);
   }
+}
+
+function fitsExport(plan) {
+  return plan.width <= 16384 && plan.height <= 16384 && plan.width * plan.height <= 40_000_000;
+}
+
+async function renderPreview() {
+  const revision = ++previewRevision;
+  const active = () => revision === previewRevision;
+  const size = groupSize();
+  const visible = images.length >= 2 && size !== null;
+  $('preview').hidden = $('show-preview').hidden = !visible;
+  if (!visible) {
+    previewIndex = 0;
+    return;
+  }
+  const groups = groupInOrder(images, size);
+  previewIndex = Math.min(previewIndex, groups.length - 1);
+  const group = groups[previewIndex];
+  const plan = composition(group, direction);
+  const canvas = $('preview-canvas');
+  $('preview-size').textContent = `${plan.width} × ${plan.height} px`;
+  $('preview-group').textContent = `Group ${previewIndex + 1} of ${groups.length}`;
+  $('preview-nav').hidden = groups.length === 1;
+  $('previous-group').disabled = previewIndex === 0;
+  $('next-group').disabled = previewIndex === groups.length - 1;
+  canvas.hidden = true;
+  $('preview-status').textContent = 'Updating preview…';
+
+  const scratch = node('canvas');
+  const scale = Math.min(1, 768 / Math.max(plan.width, plan.height));
+  scratch.width = Math.max(1, Math.round(scale * plan.width));
+  scratch.height = Math.max(1, Math.round(scale * plan.height));
+  try {
+    await drawComposition(scratch, group, plan, active);
+    if (!active()) return;
+    canvas.width = scratch.width;
+    canvas.height = scratch.height;
+    canvas.getContext('2d').drawImage(scratch, 0, 0);
+    canvas.setAttribute('aria-label', `${direction} preview of ${group.map(image => image.name).join(', ')}`);
+    canvas.hidden = false;
+    $('preview-status').textContent = fitsExport(plan) ? '' : 'Too large to export. Try fewer images per group or a tighter crop.';
+  } catch {
+    if (active()) $('preview-status').textContent = 'This preview could not be displayed.';
+  } finally {
+    scratch.width = scratch.height = 1;
+  }
+}
+
+$('previous-group').onclick = () => { previewIndex--; renderPreview(); };
+$('next-group').onclick = () => { previewIndex++; renderPreview(); };
+$('show-preview').onclick = () => {
+  $('preview-title').focus({ preventScroll: true });
+  $('preview').scrollIntoView({ block: 'start' });
+};
+
+async function joinGroup(group, name) {
+  const plan = composition(group, direction);
+  if (!fitsExport(plan)) throw new Error('Output is too large. Try fewer images per group or a tighter crop.');
   const canvas = node('canvas');
   canvas.width = plan.width;
   canvas.height = plan.height;
   try {
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas is unavailable.');
-    for (const [index, source] of group.entries()) {
-      const image = new Image();
-      image.src = source.url;
-      await image.decode();
-      context.drawImage(image, ...plan.positions[index]);
-      image.src = '';
-    }
+    await drawComposition(canvas, group, plan);
     const blob = await encodePng(canvas);
     return { name, blob, url: URL.createObjectURL(blob), width: plan.width, height: plan.height, sources: group.map(source => source.name) };
   } finally {
-    canvas.width = 1;
-    canvas.height = 1;
+    canvas.width = canvas.height = 1;
   }
 }
 
@@ -237,7 +375,7 @@ function resultCard(output) {
 $('generate').onclick = async () => {
   clearOutputs();
   setBusy(true);
-  const groups = sortedGroups(images, groupSize());
+  const groups = groupInOrder(images, groupSize());
   const errors = [];
   for (const [index, group] of groups.entries()) {
     message(`Joining group ${index + 1} of ${groups.length}…`);
@@ -308,6 +446,14 @@ $('clear').onclick = () => {
   $('browse').focus();
 };
 
+$('sort').onclick = () => {
+  manualOrder = false;
+  images = sortByFilename(images);
+  clearOutputs();
+  renderQueue();
+  message('Sorted by filename.');
+};
+
 for (const value of directions) {
   $(value).onclick = () => {
     if (direction === value) return;
@@ -315,6 +461,7 @@ for (const value of directions) {
     for (const option of directions) $(option).setAttribute('aria-pressed', String(option === direction));
     clearOutputs();
     updateControls();
+    renderPreview();
     message('');
   };
 }
