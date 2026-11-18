@@ -30,28 +30,7 @@ export function joinComposition(images, direction, { fill = 'transparent', color
   return { width, height, positions, sizes, regions: original.regions, background: fill === 'solid' ? color : null, frame };
 }
 
-function grid(columns, rows) {
-  return Array.from({ length: columns * rows }, (_, i) => [i % columns, Math.floor(i / columns), 1, 1]);
-}
-
-export const templates = [
-  { id: 'duo', name: 'Side by side', columns: 2, rows: 1, cells: grid(2, 1) },
-  { id: 'stack', name: 'Stacked pair', columns: 1, rows: 2, cells: grid(1, 2) },
-  { id: 'triptych', name: 'Three columns', columns: 3, rows: 1, cells: grid(3, 1) },
-  { id: 'three-rows', name: 'Three rows', columns: 1, rows: 3, cells: grid(1, 3) },
-  { id: 'feature', name: 'Wide lead', columns: 2, rows: 2, cells: [[0, 0, 2, 1], [0, 1, 1, 1], [1, 1, 1, 1]] },
-  { id: 'feature-left', name: 'Tall lead', columns: 2, rows: 2, cells: [[0, 0, 1, 2], [1, 0, 1, 1], [1, 1, 1, 1]] },
-  { id: 'quad', name: '2 × 2 grid', columns: 2, rows: 2, cells: grid(2, 2) },
-  { id: 'four-feature', name: 'Wide lead + three', columns: 3, rows: 2, cells: [[0, 0, 3, 1], [0, 1, 1, 1], [1, 1, 1, 1], [2, 1, 1, 1]] },
-  { id: 'four-strips', name: 'Four rows', columns: 1, rows: 4, cells: grid(1, 4) },
-  { id: 'five', name: 'Two + three', columns: 6, rows: 2, cells: [[0, 0, 3, 1], [3, 0, 3, 1], [0, 1, 2, 1], [2, 1, 2, 1], [4, 1, 2, 1]] },
-  { id: 'five-tall', name: 'Two beside three', columns: 2, rows: 6, cells: [[0, 0, 1, 3], [0, 3, 1, 3], [1, 0, 1, 2], [1, 2, 1, 2], [1, 4, 1, 2]] },
-  { id: 'six', name: '2 × 3 grid', columns: 2, rows: 3, cells: grid(2, 3) },
-  { id: 'six-wide', name: '3 × 2 grid', columns: 3, rows: 2, cells: grid(3, 2) },
-  { id: 'seven', name: 'Wide lead + six', columns: 3, rows: 3, cells: [[0, 0, 3, 1], ...grid(3, 2).map(([x, y, w, h]) => [x, y + 1, w, h])] },
-  { id: 'eight', name: '2 × 4 grid', columns: 2, rows: 4, cells: grid(2, 4) },
-  { id: 'nine', name: '3 × 3 grid', columns: 3, rows: 3, cells: grid(3, 3) },
-];
+export { matchingLayouts, templates } from './collage-layouts.mjs';
 
 export const exportSizes = [
   { id: 'square', name: 'Square · 1:1', width: 1080, height: 1080 },
@@ -64,9 +43,10 @@ export const exportSizes = [
 
 export function collageCells(template, { width, height }, border) {
   const axis = (offset, span, length, divisions) => {
-    const usable = length - (divisions + 1) * border;
-    const start = Math.round(usable * offset / divisions) + (offset + 1) * border;
-    const end = Math.round(usable * (offset + span) / divisions) + (offset + span) * border;
+    const usable = length - 2 * border;
+    const half = Math.floor(border / 2);
+    const start = border + Math.round(usable * offset / divisions) + (offset === 0 ? 0 : border - half);
+    const end = border + Math.round(usable * (offset + span) / divisions) - (offset + span === divisions ? 0 : half);
     return [start, end - start];
   };
   return template.cells.map(([column, row, columns, rows]) => {
@@ -85,5 +65,27 @@ export function framedImage(photo, cell) {
     y: (cell.height - height) * photo.panY,
     width,
     height,
+  };
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+/** Keep the image point under the initial touch midpoint anchored during a pinch. */
+export function gestureFraming(photo, cell, start, end, scale) {
+  const before = framedImage(photo, cell);
+  const zoom = clamp(photo.zoom * scale, 1, 4);
+  const after = framedImage({ ...photo, zoom }, cell);
+  const pan = (sourceStart, destinationStart, oldOffset, oldLength, newLength, cellLength, current) => {
+    const slack = cellLength - newLength;
+    if (slack >= -1e-8) return current;
+    const relative = (sourceStart - oldOffset) / oldLength;
+    return clamp((destinationStart - relative * newLength) / slack, 0, 1);
+  };
+  return {
+    zoom,
+    panX: pan(start.x, end.x, before.x, before.width, after.width, cell.width, photo.panX),
+    panY: pan(start.y, end.y, before.y, before.height, after.height, cell.height, photo.panY),
   };
 }

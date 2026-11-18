@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collageCells, exportSizes, framedImage, joinComposition, templates } from '../dist/composer.mjs';
+import { collageCells, exportSizes, framedImage, gestureFraming, joinComposition, matchingLayouts, templates } from '../dist/composer.mjs';
 
 test('join can preserve crop dimensions or fill the shared axis proportionally', () => {
   const photos = [{ width: 300, height: 200 }, { width: 350, height: 250, crop: { x: 40, y: 20, width: 100, height: 50 } }];
@@ -43,4 +43,40 @@ test('collage framing covers the slot and preserves proportions while zooming or
   const photo = { width: 200, height: 100, zoom: 1, panX: .5, panY: .5 };
   assert.deepEqual(framedImage(photo, cell), { x: -50, y: 0, width: 200, height: 100 });
   assert.deepEqual(framedImage({ ...photo, zoom: 2, panX: 1, panY: .2 }, cell), { x: -300, y: -20, width: 400, height: 200 });
+});
+
+test('every export size offers exact-count layouts, ranked for the canvas shape', () => {
+  for (const size of exportSizes) {
+    for (let count = 4; count <= 9; count++) {
+      const matches = matchingLayouts(count, size);
+      assert.ok(matches.length >= 5);
+      assert.ok(matches.every(layout => layout.cells.length === count));
+      const signature = layout => collageCells(layout, size, 0)
+        .map(({ x, y, width, height }) => [x, y, width, height].join(',')).sort().join(';');
+      assert.equal(new Set(matches.map(signature)).size, matches.length);
+    }
+  }
+  assert.equal(matchingLayouts(4, exportSizes.find(size => size.id === 'square'))[0].id, 'quad');
+  assert.notEqual(
+    matchingLayouts(6, exportSizes.find(size => size.id === 'phone'))[0].id,
+    matchingLayouts(6, exportSizes.find(size => size.id === 'wide'))[0].id,
+  );
+  for (const { columns, rows, cells } of templates) {
+    const tiles = Array.from({ length: rows * columns }, () => 0);
+    for (const [x, y, w, h] of cells) {
+      for (let r = y; r < y + h; r++) for (let c = x; c < x + w; c++) tiles[r * columns + c]++;
+    }
+    assert.ok(tiles.every(uses => uses === 1));
+  }
+});
+
+test('pinch keeps the focal image point under the fingers and clamps the zoom', () => {
+  const cell = { width: 100, height: 100 };
+  const photo = { width: 100, height: 100, zoom: 1, panX: .5, panY: .5 };
+  const start = { x: 25, y: 35 };
+  const end = { x: 30, y: 55 };
+  const result = gestureFraming(photo, cell, start, end, 2);
+  assert.deepEqual(result, { zoom: 2, panX: .2, panY: .15 });
+  assert.deepEqual(gestureFraming(photo, cell, start, end, .5), { zoom: 1, panX: .5, panY: .5 });
+  assert.equal(gestureFraming(photo, cell, start, end, 12).zoom, 4);
 });
