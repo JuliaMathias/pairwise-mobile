@@ -142,13 +142,15 @@
       </section>
       <section class="settings collage-settings" aria-labelledby="collage-layout-title">
         <div class="section-top"><h2 id="collage-layout-title">Layout</h2>
-          <button id="collage-add" class="button add-secondary">+ Add photos</button>
+          <button id="collage-add" class="button add-secondary" aria-describedby="collage-import-hint">+ Add photos</button>
         </div>
+        <p class="hint" id="collage-import-hint">Choose up to 9 photos. The slot count updates automatically.</p>
         <div class="control-row"><label for="collage-count">Photo slots</label>
-          <select id="collage-count"><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select>
+          <select id="collage-count"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select>
         </div>
-        <div id="collage-templates" class="collage-templates" role="group" aria-label="Collage layouts"></div>
         <label class="control-row collage-size-row" for="collage-size"><span>Export size</span><select id="collage-size"></select></label>
+        <p class="hint collage-layout-note" id="collage-layout-note" aria-live="polite"></p>
+        <div id="collage-templates" class="collage-templates" role="group" aria-label="Collage layouts"></div>
       </section>
       <section class="preview collage-preview" aria-labelledby="collage-canvas-title">
         <div class="section-top"><h2 id="collage-canvas-title" tabindex="-1">Your collage</h2><span class="hint" id="collage-dimensions"></span></div>

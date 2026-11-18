@@ -219,3 +219,24 @@ body:has(#crop-dialog[open]) { overflow: hidden; }
 .tray-photo img { width: 100%; height: 100%; object-fit: cover; }
 #collage-status { font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
 #collage-status.error { color: #8a2c21; }
+
+.collage-layout-note { margin: 9px 0 0; }
+.collage-templates {
+  max-height: 255px;
+  overflow-y: auto;
+  padding: 3px;
+  scrollbar-color: #8ba57c transparent;
+}
+.collage-layout { min-height: 83px; justify-content: center; }
+.collage-slot.drop-target {
+  outline: 3px solid #70943b;
+  outline-offset: -3px;
+  z-index: 2;
+}
+.collage-slot.drop-target::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #d4ef7955;
+  pointer-events: none;
+}

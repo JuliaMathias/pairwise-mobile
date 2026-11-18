@@ -1,7 +1,8 @@
-import { collageCells, exportSizes, framedImage, templates } from './composer.mjs';
+import { collageCells, exportSizes, framedImage, gestureFraming, matchingLayouts } from './composer.mjs';
 import { downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
 
 const center = { zoom: 1, panX: .5, panY: .5 };
+const maxPhotos = 9;
 const clamp = value => Math.max(0, Math.min(1, value));
 
 export function createCollage() {
@@ -13,14 +14,13 @@ export function createCollage() {
   const borderInput = get('collage-border');
   const borderColor = get('collage-border-color');
   const zoom = get('collage-zoom');
-  let template = templates[0];
+  let template = matchingLayouts(2, exportSizes[0])[0];
   let slots = Array(template.cells.length).fill(null);
   let tray = [];
   let selected = -1;
   let moveFrom = -1;
   let trayPick = null;
   let importSlot = null;
-  let layoutChosen = false;
   let busy = false;
 
   for (const size of exportSizes) sizePicker.add(new Option(size.name, size.id));
@@ -63,7 +63,13 @@ export function createCollage() {
 
   function renderTemplates() {
     const list = get('collage-templates');
-    const choices = templates.filter(item => item.cells.length === Number(countPicker.value));
+    const dimensions = size();
+    const count = Number(countPicker.value);
+    const choices = matchingLayouts(count, dimensions);
+    const aspect = dimensions.width / dimensions.height;
+    get('collage-layout-note').textContent = choices.length === 1
+      ? '1 layout'
+      : `${choices.length} layouts · best fit first`;
     list.replaceChildren(...choices.map(choice => {
       const button = element('button', 'collage-layout');
       button.dataset.template = choice.id;
@@ -71,6 +77,8 @@ export function createCollage() {
       button.setAttribute('aria-pressed', String(choice === template));
       const icon = element('span', 'layout-symbol');
       icon.setAttribute('aria-hidden', 'true');
+      icon.style.width = `${Math.min(53, 42 * aspect)}px`;
+      icon.style.height = `${Math.min(42, 53 / aspect)}px`;
       icon.style.gridTemplate = `repeat(${choice.rows}, 1fr) / repeat(${choice.columns}, 1fr)`;
       for (const [x, y, width, height] of choice.cells) {
         const block = document.createElement('i');
@@ -79,7 +87,6 @@ export function createCollage() {
       }
       button.append(icon, document.createTextNode(choice.name));
       button.onclick = () => {
-        layoutChosen = true;
         resizeSlots(choice);
         render();
         list.querySelector(`[data-template="${choice.id}"]`).focus({ preventScroll: true });
@@ -96,11 +103,25 @@ export function createCollage() {
     img.style.height = `${frame.height / cell.height * 100}%`;
   }
 
+  function photoCount() {
+    return slots.filter(Boolean).length + tray.length;
+  }
+
   function openPicker(index = null) {
-    if (busy) return;
+    if (busy || (index === null && photoCount() >= maxPhotos)) return;
     importSlot = index;
     picker.multiple = index === null;
     picker.click();
+  }
+
+  function swapSlots(from, to) {
+    if (from !== to) {
+      [slots[to], slots[from]] = [slots[from], slots[to]];
+      setStatus(`Moved ${slots[to].name} to slot ${to + 1}.`);
+    }
+    moveFrom = -1;
+    selected = to;
+    render();
   }
 
   function activateSlot(index) {
@@ -115,13 +136,7 @@ export function createCollage() {
       setStatus(`Placed ${photo.name} in slot ${index + 1}.`);
       render();
     } else if (moveFrom !== -1) {
-      if (moveFrom !== index) {
-        [slots[index], slots[moveFrom]] = [slots[moveFrom], slots[index]];
-        setStatus(`Moved ${slots[index].name} to slot ${index + 1}.`);
-      }
-      moveFrom = -1;
-      selected = index;
-      render();
+      swapSlots(moveFrom, index);
     } else if (!slots[index]) {
       openPicker(index);
     } else {
@@ -133,38 +148,97 @@ export function createCollage() {
   function makeSlot(index) {
     const button = element('button', 'collage-slot');
     button.type = 'button';
-    let drag;
+    const pointers = new Map();
+    let gesture;
     let suppressClick = false;
+    let pinched = false;
+    let dropTarget;
+
+    function markTarget(target) {
+      if (target === dropTarget) return;
+      dropTarget?.classList.remove('drop-target');
+      dropTarget = target;
+      dropTarget?.classList.add('drop-target');
+    }
+
+    function midpoint() {
+      const [first, second = first] = pointers.values();
+      return { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+    }
+
+    function distance() {
+      if (pointers.size < 2) return 0;
+      const [first, second] = pointers.values();
+      return Math.hypot(first.x - second.x, first.y - second.y);
+    }
+
+    function position(point) {
+      const { visible, cell } = gesture;
+      return {
+        x: (point.x - visible.left) * cell.width / visible.width,
+        y: (point.y - visible.top) * cell.height / visible.height,
+      };
+    }
+
+    function restartGesture() {
+      gesture = pointers.size ? {
+        midpoint: midpoint(),
+        distance: distance(),
+        visible: button.getBoundingClientRect(),
+        cell: cells()[index],
+        photo: { ...slots[index] },
+      } : null;
+    }
+
     button.onclick = event => {
       if (suppressClick && event.detail) return;
       activateSlot(index);
     };
     button.onpointerdown = event => {
-      suppressClick = false;
-      const photo = slots[index];
-      if (!photo || moveFrom !== -1 || trayPick || busy || !event.isPrimary || event.button !== 0) return;
-      const cell = cells()[index];
-      const visible = button.getBoundingClientRect();
-      const frame = framedImage(photo, cell);
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, visible, cell, frame };
+      if (!slots[index] || moveFrom !== -1 || trayPick || busy || event.button !== 0 || pointers.size >= 2) return;
+      if (!pointers.size) pinched = false;
+      else {
+        pinched = true;
+        markTarget(null);
+      }
+      suppressClick = pointers.size > 0;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
       button.setPointerCapture(event.pointerId);
+      restartGesture();
     };
     button.onpointermove = event => {
-      if (drag?.id !== event.pointerId) return;
-      const dx = event.clientX - drag.x;
-      const dy = event.clientY - drag.y;
-      if (!suppressClick && Math.hypot(dx, dy) < 4) return;
+      if (!gesture || !pointers.has(event.pointerId)) return;
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const point = midpoint();
+      if (!suppressClick && Math.hypot(point.x - gesture.midpoint.x, point.y - gesture.midpoint.y) < 4) return;
       suppressClick = true;
       selected = index;
       const photo = slots[index];
-      const slackX = drag.cell.width - drag.frame.width;
-      const slackY = drag.cell.height - drag.frame.height;
-      if (slackX < 0) photo.panX = clamp((drag.frame.x + dx * drag.cell.width / drag.visible.width) / slackX);
-      if (slackY < 0) photo.panY = clamp((drag.frame.y + dy * drag.cell.height / drag.visible.height) / slackY);
-      photoPosition(button.firstElementChild, photo, drag.cell);
+      const hovered = pinched ? null : document.elementFromPoint(point.x, point.y)?.closest('.collage-slot');
+      markTarget(hovered && hovered !== button && hovered.parentElement === board ? hovered : null);
+      if (dropTarget) {
+        Object.assign(photo, gesture.photo);
+      } else {
+        const scale = gesture.distance ? distance() / gesture.distance : 1;
+        Object.assign(photo, gestureFraming(gesture.photo, gesture.cell, position(gesture.midpoint), position(point), scale));
+      }
+      photoPosition(button.firstElementChild, photo, gesture.cell);
       renderSelection();
     };
-    button.onlostpointercapture = () => { drag = null; };
+    button.onpointerup = event => {
+      if (!dropTarget || !pointers.has(event.pointerId)) return;
+      const target = [...board.children].indexOf(dropTarget);
+      markTarget(null);
+      if (target !== -1) {
+        swapSlots(index, target);
+        board.children[target].focus({ preventScroll: true });
+      }
+    };
+    button.onlostpointercapture = event => {
+      markTarget(null);
+      pointers.delete(event.pointerId);
+      restartGesture();
+    };
     button.onkeydown = event => {
       if (!slots[index] || moveFrom !== -1 || trayPick || busy) return;
       const offsets = { ArrowLeft: ['panX', .05], ArrowRight: ['panX', -.05], ArrowUp: ['panY', .05], ArrowDown: ['panY', -.05] };
@@ -227,7 +301,7 @@ export function createCollage() {
     const hint = get('collage-hint');
     if (trayPick) hint.textContent = 'Tap a slot to place the selected photo.';
     else if (moveFrom !== -1) hint.textContent = 'Tap another slot to move or swap this photo.';
-    else if (photo) hint.textContent = 'Drag inside the photo to reposition it. Use Zoom to change the crop.';
+    else if (photo) hint.textContent = 'Drag inside to reframe, or onto another slot to swap. Pinch to zoom.';
     else hint.textContent = 'Tap an empty slot to add a photo.';
     if (!photo) return;
     get('collage-selected-name').textContent = photo.name;
@@ -270,6 +344,11 @@ export function createCollage() {
       'collage-count', 'collage-size', 'collage-border', 'collage-add', 'collage-samples',
       'collage-clear', 'collage-replace', 'collage-swap', 'collage-remove', 'collage-reset-view', 'collage-zoom',
     ]) get(control).disabled = busy;
+    const room = maxPhotos - photoCount();
+    get('collage-add').disabled = busy || room === 0;
+    get('collage-import-hint').textContent = room === maxPhotos
+      ? 'Choose up to 9 photos. The slot count updates automatically.'
+      : room ? `Add up to ${room} more. The slot count updates automatically.` : '9-photo limit reached. Remove a photo to add another.';
     borderColor.disabled = busy || Number(borderInput.value) === 0;
   }
 
@@ -280,24 +359,29 @@ export function createCollage() {
     setStatus('Reading photos…');
     try {
       const files = typeof source === 'function' ? await source() : source;
-      const { photos, errors } = await readPhotos(files);
+      const room = index === null ? maxPhotos - photoCount() : 1;
+      const { photos, errors } = await readPhotos([...files].slice(0, room));
       const additions = photos.map(photo => ({ ...photo, ...center }));
       if (index !== null && additions.length) {
-        layoutChosen = true;
-        if (slots[index]) tray.push(slots[index]);
+        if (slots[index]) {
+          const previous = slots[index];
+          if (photoCount() < maxPhotos) tray.push(previous);
+          else URL.revokeObjectURL(previous.url);
+        }
         slots[index] = additions[0];
         selected = index;
         moveFrom = -1;
         trayPick = null;
-      } else {
+      } else if (additions.length) {
         tray.push(...additions);
-        const total = slots.filter(Boolean).length + tray.length;
-        if (!layoutChosen && total > slots.length) {
-          resizeSlots(templates.find(choice => choice.cells.length === Math.min(total, 9)));
-        } else fillFromTray();
+        const count = photoCount();
+        const next = count === template.cells.length ? template : matchingLayouts(count, size())[0];
+        resizeSlots(next);
       }
-      const warning = errors.length ? `Skipped ${errors.length} file(s):\n${errors.join('\n')}` : '';
-      setStatus(warning, Boolean(errors.length));
+      const skipped = index === null ? Math.max(0, files.length - room) : 0;
+      const warnings = [...errors];
+      if (skipped) warnings.unshift(`Added up to the 9-photo limit. Skipped ${skipped} extra ${skipped === 1 ? 'file' : 'files'}.`);
+      setStatus(warnings.join('\n'), Boolean(errors.length));
     } catch {
       setStatus('Could not load these photos.', true);
     } finally {
@@ -314,11 +398,13 @@ export function createCollage() {
   get('collage-add').onclick = () => openPicker();
   get('collage-samples').onclick = () => ingest(sampleFiles);
   countPicker.onchange = () => {
-    layoutChosen = true;
-    resizeSlots(templates.find(choice => choice.cells.length === Number(countPicker.value)));
+    resizeSlots(matchingLayouts(Number(countPicker.value), size())[0]);
     render();
   };
-  sizePicker.onchange = renderBoard;
+  sizePicker.onchange = () => {
+    renderTemplates();
+    renderBoard();
+  };
   borderInput.oninput = () => {
     borderColor.disabled = Number(borderInput.value) === 0;
     renderBoard();
@@ -341,7 +427,7 @@ export function createCollage() {
   };
   get('collage-remove').onclick = () => {
     const index = selected;
-    tray.push(slots[index]);
+    URL.revokeObjectURL(slots[index].url);
     slots[index] = null;
     selected = moveFrom = -1;
     render();

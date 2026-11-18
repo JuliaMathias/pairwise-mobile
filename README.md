@@ -12,7 +12,7 @@ The **Live preview** shows each group's exact layout and output dimensions as yo
 
 ## Make a collage
 
-Import several photos to start with a grid sized for the selection, or choose a template and tap each empty slot to import one photo. Collages support 2–9 slots and six fixed PNG sizes, including square, portrait, landscape, and two phone sizes. Tap any filled slot to zoom, reposition, replace, or move its photo into another slot. Switching to a smaller template keeps unused photos in the tray. Use Borders to change the color and thickness of both the frame and the space between photos.
+Import up to nine photos to set the slot count automatically, or choose a template and tap each empty slot to import one photo. Pairwise shows layouts with the exact slot count and puts those with less extreme cell proportions first for the chosen export size. The six fixed PNG sizes include square, portrait, landscape, and two phone sizes. Pinch a filled slot or use Zoom to adjust its crop. Drag inside the slot to reposition the photo, or drag it onto another slot to swap the two. Select a photo for Replace and Move / swap controls. Switching to a smaller template keeps unused photos in the tray. Use Borders to change the color and thickness of both the frame and the space between photos.
 
 The prototype reads and processes images in the browser. Reloading clears the current session. Supported formats include PNG, JPEG, WebP, GIF, AVIF, and BMP, subject to browser support. Image and canvas sizes are bounded to protect device memory.
 
