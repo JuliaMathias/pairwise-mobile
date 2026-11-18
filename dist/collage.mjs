@@ -1,5 +1,5 @@
 import { collageCells, exportSizes, framedImage, gestureFraming, matchingLayouts } from './composer.mjs';
-import { downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
+import { android, downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
 
 const center = { zoom: 1, panX: .5, panY: .5 };
 const maxPhotos = 9;
@@ -111,6 +111,7 @@ export function createCollage() {
     if (busy || (index === null && photoCount() >= maxPhotos)) return;
     importSlot = index;
     picker.multiple = index === null;
+    android?.setPhotoLimit(index === null ? maxPhotos - photoCount() : 1);
     picker.click();
   }
 
@@ -475,8 +476,8 @@ export function createCollage() {
         context.drawImage(image, cell.x + frame.x, cell.y + frame.y, frame.width, frame.height);
         context.restore();
       }
-      downloadBlob(await encodePng(canvas), `pairwise-collage-${width}x${height}.png`);
-      setStatus('Collage download started.');
+      const result = await downloadBlob(await encodePng(canvas), `pairwise-collage-${width}x${height}.png`);
+      setStatus(result === 'saved' ? 'Collage saved.' : result === 'download' ? 'Collage download started.' : '');
     } catch {
       setStatus('Could not save this collage.', true);
     } finally {

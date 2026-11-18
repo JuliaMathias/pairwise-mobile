@@ -1,7 +1,7 @@
 import { groupInOrder, makeZip, moveImage, outputFilename, safePrefix, sortByFilename, validOffset } from './core.mjs';
 import { createCropEditor } from './crop-editor.mjs';
 import { joinComposition } from './composer.mjs';
-import { downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
+import { android, downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
 import { createCollage } from './collage.mjs';
 
 const $ = id => document.getElementById(id);
@@ -327,6 +327,22 @@ function resultCard(output) {
   const link = node('a', 'button add-secondary', 'Save PNG ↓');
   link.href = output.url;
   link.download = output.name;
+  if (android) {
+    link.addEventListener('click', async event => {
+      event.preventDefault();
+      if (busy) return;
+      setBusy(true);
+      message('Preparing your PNG…');
+      try {
+        const result = await downloadBlob(output.blob, output.name);
+        message(result === 'saved' ? 'PNG saved.' : '');
+      } catch (error) {
+        message(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    });
+  }
   link.setAttribute('aria-label', `Save ${output.name}`);
   meta.append(node('strong', '', output.name), node('p', 'hint', `${output.width} × ${output.height} px`), link);
   card.append(preview, meta);
@@ -362,8 +378,8 @@ $('bundle').onclick = async () => {
   message('Preparing your ZIP…');
   try {
     const prefix = safePrefix(nameField.value);
-    downloadBlob(await makeZip(outputs), prefix ? `${prefix}.zip` : 'pairwise-images.zip');
-    message('ZIP download started.');
+    const result = await downloadBlob(await makeZip(outputs), prefix ? `${prefix}.zip` : 'pairwise-images.zip');
+    message(result === 'saved' ? 'ZIP saved.' : result === 'download' ? 'ZIP download started.' : '');
   } catch (error) {
     message(error.message, true);
   } finally {

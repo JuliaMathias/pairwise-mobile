@@ -68,7 +68,51 @@ export async function readPhotos(files) {
   return { photos, errors };
 }
 
-export function downloadBlob(blob, filename) {
+export const android = globalThis.PairwiseAndroid;
+
+const pendingSaves = new Map();
+
+if (android) {
+  globalThis.pairwiseAndroidSaveResult = (id, status) => {
+    const pending = pendingSaves.get(id);
+    if (!pending) return;
+    pendingSaves.delete(id);
+    if (status === 'saved' || status === 'cancelled') pending.resolve(status);
+    else pending.reject(new Error(status));
+  };
+}
+
+function blobDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('Could not prepare the export.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function saveOnAndroid(blob, filename) {
+  const id = android.beginSave(filename);
+  if (!id) throw new Error('Could not start saving the file.');
+  try {
+    const chunkSize = 192 * 1024;
+    for (let offset = 0; offset < blob.size; offset += chunkSize) {
+      const encoded = await blobDataUrl(blob.slice(offset, offset + chunkSize));
+      if (!android.appendSave(id, encoded.split(',')[1])) throw new Error('Could not stage the export.');
+    }
+    return await new Promise((resolve, reject) => {
+      pendingSaves.set(id, { resolve, reject });
+      if (!android.finishSave(id)) reject(new Error('Could not open the save dialog.'));
+    });
+  } catch (error) {
+    pendingSaves.delete(id);
+    android.cancelSave(id);
+    throw error;
+  }
+}
+
+export async function downloadBlob(blob, filename) {
+  if (android) return saveOnAndroid(blob, filename);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -77,4 +121,5 @@ export function downloadBlob(blob, filename) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return 'download';
 }
