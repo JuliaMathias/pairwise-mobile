@@ -3,6 +3,7 @@ import { createCropEditor } from './crop-editor.mjs';
 import { joinComposition } from './composer.mjs';
 import { android, downloadBlob, encodePng, readPhotos, sampleFiles, saveImageFiles } from './photos.mjs';
 import { createCollage } from './collage.mjs';
+import { createCutout } from './cutout.mjs';
 
 const $ = id => document.getElementById(id);
 const groupField = $('group-size');
@@ -505,16 +506,19 @@ for (const id of ['join-fill', 'join-color', 'join-border', 'join-border-color']
 }
 
 createCollage();
+createCutout(openCrop);
 
 function showMode() {
   const mode = location.hash.slice(1);
-  const active = mode === 'join' || mode === 'collage' ? mode : 'home';
+  const titles = { home: 'mode-title', join: 'title', collage: 'collage-title', cutout: 'cutout-title' };
+  const active = Object.hasOwn(titles, mode) ? mode : 'home';
   $('mode-home').hidden = active !== 'home';
   $('join-mode').hidden = $('join-actions').hidden = active !== 'join';
   $('collage-mode').hidden = $('collage-actions').hidden = active !== 'collage';
+  $('cutout-mode').hidden = $('cutout-actions').hidden = active !== 'cutout';
   $('back-to-modes').hidden = active === 'home';
   window.scrollTo(0, 0);
-  $(active === 'home' ? 'mode-title' : active === 'join' ? 'title' : 'collage-title').focus({ preventScroll: true });
+  $(titles[active]).focus({ preventScroll: true });
 }
 
 window.addEventListener('hashchange', showMode);

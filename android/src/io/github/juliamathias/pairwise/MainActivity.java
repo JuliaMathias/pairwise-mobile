@@ -34,6 +34,7 @@ public final class MainActivity extends Activity {
 
     private WebView webView;
     private ExportBridge exportBridge;
+    private IncomingShare incomingShare;
     private ValueCallback<Uri[]> photoCallback;
     private volatile int requestedPhotoLimit;
 
@@ -66,6 +67,7 @@ public final class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSupportMultipleWindows(false);
+        incomingShare = new IncomingShare(this);
         webView.setWebViewClient(new LocalAssets());
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -75,9 +77,21 @@ public final class MainActivity extends Activity {
         });
         exportBridge = new ExportBridge(this);
         webView.addJavascriptInterface(exportBridge, "PairwiseAndroid");
+        webView.addJavascriptInterface(incomingShare, "PairwiseShare");
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
         webView.loadUrl(START);
+        incomingShare.receive(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        incomingShare.receive(intent);
+    }
+
+    void runScript(String script) {
+        if (!isFinishing() && !isDestroyed()) webView.evaluateJavascript(script, null);
     }
 
     void setPhotoLimit(int count) {
@@ -161,6 +175,7 @@ public final class MainActivity extends Activity {
     protected void onDestroy() {
         if (photoCallback != null) photoCallback.onReceiveValue(null);
         if (exportBridge != null) exportBridge.close();
+        if (incomingShare != null) incomingShare.close();
         if (webView != null) {
             if (webView.getParent() instanceof FrameLayout) ((FrameLayout) webView.getParent()).removeView(webView);
             webView.destroy();
@@ -184,13 +199,18 @@ public final class MainActivity extends Activity {
             String path = url.getPath();
             if (path == null || !path.startsWith(ROOT)) return missing();
             String filename = path.substring(ROOT.length());
-            if (!filename.matches("[a-z][a-z0-9-]*\\.(html|css|mjs)")) return missing();
-            String type = filename.endsWith(".mjs") ? "text/javascript"
+            if (filename.matches("shared-[a-f0-9-]{36}")) {
+                WebResourceResponse asset = incomingShare.asset(filename.substring(7));
+                return asset == null ? missing() : asset;
+            }
+            if (!filename.matches("[a-z][a-z0-9-]*\\.(html|css|mjs|png)")) return missing();
+            String type = filename.endsWith(".png") ? "image/png"
+                : filename.endsWith(".mjs") ? "text/javascript"
                 : filename.endsWith(".css") ? "text/css" : "text/html";
             try {
                 InputStream stream = getAssets().open(filename);
                 return new WebResourceResponse(type, "UTF-8", 200, "OK", Map.of(
-                    "Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: content:; base-uri 'none'; frame-src 'none'; form-action 'none'",
+                    "Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: content:; connect-src 'self'; base-uri 'none'; frame-src 'none'; form-action 'none'",
                     "X-Content-Type-Options", "nosniff"
                 ), stream);
             } catch (IOException absent) {

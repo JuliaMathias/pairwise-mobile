@@ -42,3 +42,12 @@ To build a signed APK, install Android SDK Platform 35 and Build Tools 36.0.0, s
 ```
 
 The default output is `android/build/Pairwise.apk`. Android updates for the same package must be signed with the same key.
+
+
+## Transparent cutouts
+
+Choose **Remove background** to erase by hand or sample a color and remove either the connected area or every matching pixel. **Find card** estimates a centered rectangular card edge. Use **Adjust crop** and **Corner rounding** to refine it. Saving creates a transparent PNG and can trim fully transparent margins.
+
+On Android, share an image to Pairwise from the system share sheet to jump straight into Cutout. Spotify's regular share sheet can send only a link even when its own preview shows artwork or lyrics. On a Spotify track-link share, Pairwise uses the public oEmbed endpoint to make a separate transparent song card from the title and cover. Pairwise also keeps the track link available for copying. To preserve Spotify's exact card or selected lyric lines, share the image or add a screenshot and use Find card. Only the optional song-card lookup needs an internet connection.
+
+The Spotify wordmark in the generated card is from the [official Spotify design guidelines](https://developer.spotify.com/documentation/design). It identifies the source of the song metadata and cover.

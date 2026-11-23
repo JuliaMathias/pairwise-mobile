@@ -252,3 +252,27 @@ body:has(#crop-dialog[open]) { overflow: hidden; }
 .result-actions .add-primary { min-width: 0; }
 #save-status:not(:empty) { margin-top: 8px; }
 #save-status.error { color: #8a2c21; }
+
+.cutout-symbol { place-items: center; padding: 0; font-size: 36px; color: #557644; }
+.cutout-import, .cutout-share { margin-bottom: 12px; }
+.cutout-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
+.cutout-buttons button { flex: 1 1 auto; }
+.cutout-buttons [aria-pressed="true"] { box-shadow: inset 0 0 0 2px #66884c; background: #e5eddc; }
+.cutout-stage { display: flex; justify-content: center; margin: 10px 0; }
+#cutout-canvas {
+  display: block; max-width: 100%; max-height: 55dvh; object-fit: contain; touch-action: none; cursor: crosshair;
+  background: #fff repeating-conic-gradient(#e0e6d9 0% 25%, #fff 0% 50%) 0 0 / 16px 16px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.cutout-range { display: grid; grid-template-columns: 1fr auto; align-items: center; margin: 10px 0; font-size: 14px; font-weight: 600; }
+.cutout-range input { grid-column: 1 / -1; width: 100%; min-height: 36px; accent-color: #557644; }
+.cutout-check { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 14px; }
+.cutout-check input { width: 18px; height: 18px; accent-color: #557644; }
+#cutout-link { width: 100%; margin-top: 8px; }
+#cutout-status { white-space: pre-wrap; margin: 10px 0; }
+#cutout-actions button { width: 100%; }
+.cutout-format { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; font-size: 14px; }
+.cutout-format select { font: inherit; padding: 7px 12px; border: 1px solid #d2dccd; border-radius: 9px; background: #fff; color: inherit; }
+
+#cutout-edit.song-card > :not(#cutout-tools-title, .cutout-stage) { display: none; }
+#cutout-edit.song-card canvas { cursor: default; touch-action: auto; }

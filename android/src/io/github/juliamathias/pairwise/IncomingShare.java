@@ -1,0 +1,200 @@
+package io.github.juliamathias.pairwise;
+
+import android.content.ClipData;
+import android.content.Intent;
+import android.net.Uri;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebResourceResponse;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import javax.net.ssl.HttpsURLConnection;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+public final class IncomingShare {
+    private static final int SHARED_IMAGE_LIMIT = 32 * 1024 * 1024;
+    private final MainActivity activity;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private volatile ImagePayload incomingImage;
+    private volatile ImagePayload coverImage;
+    private JSONObject pendingShare;
+    private boolean ready;
+
+    IncomingShare(MainActivity activity) {
+        this.activity = activity;
+    }
+
+    @JavascriptInterface
+    public void ready() {
+        activity.runOnUiThread(() -> {
+            ready = true;
+            deliver();
+        });
+    }
+
+    void receive(Intent intent) {
+        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return;
+        String type = intent.getType();
+        CharSequence extra = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
+        String text = extra == null ? "" : extra.subSequence(0, Math.min(4096, extra.length())).toString();
+        Uri stream = sharedUri(intent);
+        worker.execute(() -> {
+            JSONObject message = new JSONObject();
+            try {
+                message.put("text", text);
+                if (type != null && type.startsWith("image/") && stream != null && "content".equals(stream.getScheme())) {
+                    byte[] bytes = read(activity.getContentResolver().openInputStream(stream), SHARED_IMAGE_LIMIT);
+                    incomingImage = new ImagePayload(bytes, imageMime(bytes));
+                    message.put("image", incomingImage.id);
+                    message.put("name", "shared-image");
+                }
+            } catch (IOException | RuntimeException | JSONException error) {
+                try { message.put("error", "Couldn’t open the shared image. Add it from Photos instead."); }
+                catch (JSONException ignored) { return; }
+            }
+            activity.runOnUiThread(() -> {
+                pendingShare = message;
+                deliver();
+            });
+        });
+    }
+
+    @SuppressWarnings("deprecation")
+    private Uri sharedUri(Intent intent) {
+        android.os.Parcelable extra = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (extra instanceof Uri) return (Uri) extra;
+        ClipData clip = intent.getClipData();
+        return clip != null && clip.getItemCount() > 0 ? clip.getItemAt(0).getUri() : null;
+    }
+
+    private void deliver() {
+        if (!ready || pendingShare == null) return;
+        String json = pendingShare.toString();
+        activity.runScript("window.pairwiseReceiveShare?.(JSON.parse(" + JSONObject.quote(json) + "))");
+        pendingShare = null;
+    }
+
+    @JavascriptInterface
+    public void copyTrackLink(String track) {
+        if (!validTrack(track)) return;
+        activity.runOnUiThread(() -> {
+            android.content.ClipboardManager clipboard = activity.getSystemService(android.content.ClipboardManager.class);
+            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("Spotify track", track));
+        });
+    }
+
+    @JavascriptInterface
+    public void makeSongCard(String track) {
+        if (!validTrack(track)) {
+            sendCard("", "", track, "This is not a supported Spotify track link.");
+            return;
+        }
+        worker.execute(() -> {
+            try {
+                URL endpoint = new URL("https://open.spotify.com/oembed?url=" + Uri.encode(track));
+                byte[] metadata = fetch(endpoint, 64 * 1024);
+                JSONObject embed = new JSONObject(new String(metadata, StandardCharsets.UTF_8));
+                String title = embed.getString("title");
+                URL cover = new URL(embed.getString("thumbnail_url"));
+                String host = cover.getHost().toLowerCase(Locale.ROOT);
+                if (!"https".equals(cover.getProtocol()) || cover.getPort() != -1 || cover.getUserInfo() != null
+                    || !cover.getPath().startsWith("/image/")
+                    || !(host.equals("i.scdn.co") || host.endsWith(".spotifycdn.com"))) {
+                    throw new IOException("Unknown cover host");
+                }
+                byte[] bytes = fetch(cover, 3 * 1024 * 1024);
+                coverImage = new ImagePayload(bytes, imageMime(bytes));
+                sendCard(coverImage.id, title, track, "");
+            } catch (IOException | RuntimeException | JSONException error) {
+                sendCard("", "", track, "Couldn’t get the song from Spotify. You can still add a screenshot.");
+            }
+        });
+    }
+
+    private boolean validTrack(String track) {
+        return track != null && track.length() < 200 && track.matches(
+            "https://(?:open\\.spotify\\.com/(?:intl-[a-z]{2}/)?track/[A-Za-z0-9]{22}|spotify\\.link/[A-Za-z0-9_-]+)"
+        );
+    }
+
+    private void sendCard(String id, String title, String track, String error) {
+        activity.runOnUiThread(() -> activity.runScript("window.pairwiseSongCard?.("
+            + JSONObject.quote(id) + "," + JSONObject.quote(title) + "," + JSONObject.quote(track) + "," + JSONObject.quote(error) + ")"));
+    }
+
+    WebResourceResponse asset(String id) {
+        ImagePayload image = incomingImage;
+        if (image == null || !image.id.equals(id)) image = coverImage;
+        if (image == null || !image.id.equals(id)) return null;
+        return new WebResourceResponse(image.mime, null, 200, "OK", Map.of("Cache-Control", "no-store", "X-Content-Type-Options", "nosniff"),
+            new ByteArrayInputStream(image.bytes));
+    }
+
+    void close() {
+        worker.shutdownNow();
+    }
+
+    private static String imageMime(byte[] bytes) throws IOException {
+        if (bytes.length < 16) throw new IOException("Invalid image");
+        if ((bytes[0] & 255) == 0x89 && marker(bytes, 1, "PNG")) return "image/png";
+        if ((bytes[0] & 255) == 0xff && (bytes[1] & 255) == 0xd8) return "image/jpeg";
+        if (marker(bytes, 0, "GIF8")) return "image/gif";
+        if (marker(bytes, 0, "RIFF") && marker(bytes, 8, "WEBP")) return "image/webp";
+        if (marker(bytes, 4, "ftyp") && (marker(bytes, 8, "avif") || marker(bytes, 8, "avis"))) return "image/avif";
+        if (marker(bytes, 0, "BM")) return "image/bmp";
+        throw new IOException("Unsupported image format");
+    }
+
+    private static boolean marker(byte[] bytes, int offset, String signature) {
+        for (int index = 0; index < signature.length(); index++) {
+            if (bytes[offset + index] != signature.charAt(index)) return false;
+        }
+        return true;
+    }
+
+    private static byte[] fetch(URL url, int limit) throws IOException {
+        HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
+        try {
+            connection.setInstanceFollowRedirects(false);
+            connection.setConnectTimeout(8000);
+            connection.setReadTimeout(8000);
+            if (connection.getResponseCode() != 200) throw new IOException("Request failed");
+            return read(connection.getInputStream(), limit);
+        } finally {
+            connection.disconnect();
+        }
+    }
+
+    private static byte[] read(InputStream source, int limit) throws IOException {
+        if (source == null) throw new IOException("No stream");
+        try (InputStream stream = source; ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
+            byte[] chunk = new byte[16 * 1024];
+            int count;
+            while ((count = stream.read(chunk)) != -1) {
+                if (buffer.size() + count > limit) throw new IOException("Image is too large");
+                buffer.write(chunk, 0, count);
+            }
+            return buffer.toByteArray();
+        }
+    }
+
+    private static final class ImagePayload {
+        final String id = UUID.randomUUID().toString();
+        final byte[] bytes;
+        final String mime;
+
+        ImagePayload(byte[] bytes, String mime) {
+            this.bytes = bytes;
+            this.mime = mime;
+        }
+    }
+}
