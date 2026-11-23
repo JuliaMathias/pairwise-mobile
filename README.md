@@ -56,4 +56,19 @@ The Spotify wordmark in generated cards is from the [official Spotify design gui
 
 Lyrics cards can search LRCLIB using the song title and an optional artist. Confirm the recording and select up to six lines. Results are kept in the current editor session. Paste lyrics manually when a recording is unavailable.
 
-To fill in Spotify artist credits and playlist tracks, [create an app in the Spotify Developer Dashboard](https://developer.spotify.com/dashboard/create), enable **Web API**, and register `io.github.juliamathias.pairwise://spotify-callback` as its redirect URI. Share a track or playlist to Pairwise, open **Connect Spotify for artists and playlist tracks**, enter the public Client ID, and sign in. Spotify development mode requires a Premium app owner, and the playlist items endpoint is available to owners and collaborators. Pairwise reads up to the first 50 items and lets you pick four. The connection and tokens are kept in memory for the app session. A Client Secret is unnecessary.
+#### Create the Spotify Web API app
+
+Open [Create app in the Spotify Developer Dashboard](https://developer.spotify.com/dashboard/create) and sign in with the Spotify account you plan to use in Pairwise.
+
+| Spotify field | What to enter |
+| --- | --- |
+| App name | `Pairwise` |
+| App description | `Personal Android app that uses song and playlist metadata to create share cards.` |
+| Website | Leave blank or enter `https://github.com/JuliaMathias/pairwise-mobile`. |
+| Redirect URIs | Paste `io.github.juliamathias.pairwise://spotify-callback` exactly, then tap **Add**. |
+| Which API/SDKs are you planning to use? | Check **Web API** only. Pairwise uses the Web API from Android. |
+| Developer Terms of Service and Design Guidelines | Read both, then check the box if you agree. |
+
+Tap **Save**. On the app’s dashboard page, open **Settings** and copy the **Client ID**. Share a Spotify song or playlist to Pairwise, open **Connect Spotify for artists and playlist tracks**, paste the Client ID, and tap **Sign in with Spotify**. A Client Secret is unnecessary.
+
+Spotify development mode requires a Premium app owner, and the playlist items endpoint is available to owners and collaborators. Pairwise reads up to the first 50 items and lets you pick four. The connection and tokens are kept in memory for the app session.
