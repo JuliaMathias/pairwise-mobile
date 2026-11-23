@@ -71,7 +71,8 @@ export async function createShareCard(artBlob, { title, subtitle, layout, entrie
   const cover = layout === 'cover';
   const lyrics = layout === 'lyrics';
   const titleFont = `700 ${cover ? 43 : 36}px system-ui`;
-  const titleWidth = cover ? 624 : 474;
+  const inset = 48;
+  const titleWidth = cover ? canvas.width - 2 * inset : 474;
   ctx.font = titleFont;
   const titleLines = wrapLines(ctx, title, titleWidth);
   const titleCount = Math.min(titleLines.length, 3);
@@ -80,7 +81,7 @@ export async function createShareCard(artBlob, { title, subtitle, layout, entrie
   const verseHeight = verses.reduce((sum, line) => sum + line.length * 52 + 9, 0);
   const headerHeight = Math.max(122, titleCount * 42 + 42);
   const bodyStart = 52 + headerHeight + 34;
-  canvas.height = cover ? 770 + titleCount * 49
+  canvas.height = cover ? 796 + titleCount * 49
     : bodyStart + (lyrics ? Math.max(100, verseHeight) : Math.max(70, entries.length * 75)) + 100;
 
   const { background, accent } = pickPalette(art);
@@ -92,13 +93,11 @@ export async function createShareCard(artBlob, { title, subtitle, layout, entrie
   ctx.clip();
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = accent;
-  ctx.fillRect(0, 0, canvas.width, 10);
   ctx.textBaseline = 'top';
 
   const x = cover ? 48 : 198;
-  const y = cover ? 660 : 52;
-  drawArt(ctx, art, 48, cover ? 42 : 48, cover ? 590 : 118);
+  const y = cover ? 690 : 52;
+  drawArt(ctx, art, inset, cover ? 42 : 48, cover ? canvas.width - 2 * inset : 118);
   ctx.font = titleFont;
   ctx.fillStyle = '#fff';
   titleLines.slice(0, titleCount).forEach((line, index) => {
