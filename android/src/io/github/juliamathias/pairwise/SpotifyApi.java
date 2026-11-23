@@ -172,15 +172,22 @@ final class SpotifyApi {
         }
     }
 
+    static String catalogPath(String sharedPath) {
+        if (sharedPath == null || !sharedPath.matches("(track|playlist)/[A-Za-z0-9]{22}")) return "";
+        int separator = sharedPath.indexOf('/');
+        return sharedPath.substring(0, separator) + "s" + sharedPath.substring(separator);
+    }
+
     void fetchDetails(String key, String path) {
-        if (path == null || !path.matches("(track|playlist)/[A-Za-z0-9]{22}") || key == null || key.length() > 200) return;
+        String catalogPath = catalogPath(path);
+        if (catalogPath.isEmpty() || key == null || key.length() > 200) return;
         worker.execute(() -> {
             try {
                 String token = accessToken();
                 if (token.isEmpty()) throw new IOException("Connect Spotify to load these details.");
                 JSONObject details = new JSONObject();
-                if (path.startsWith("track/")) {
-                    JSONObject track = get("tracks/" + path.substring(6), token);
+                if (catalogPath.startsWith("tracks/")) {
+                    JSONObject track = get(catalogPath, token);
                     details.put("creator", artistNames(track));
                     details.put("title", track.optString("name"));
                     JSONArray artists = track.optJSONArray("artists");
@@ -190,14 +197,16 @@ final class SpotifyApi {
                 } else {
                     String owner = "";
                     try {
-                        JSONObject playlist = get(path + "?fields=owner(display_name)", token);
+                        JSONObject playlist = get(catalogPath + "?fields=owner(display_name)", token);
                         JSONObject profile = playlist.optJSONObject("owner");
                         if (profile != null) owner = profile.optString("display_name");
+                    } catch (SpotifySessionExpired error) {
+                        throw error;
                     } catch (IOException | JSONException ignored) {
                         // The tracklist request can succeed even when owner metadata is unavailable.
                     }
                     details.put("creator", owner);
-                    JSONArray rows = get(path + "/items?limit=50", token).optJSONArray("items");
+                    JSONArray rows = get(catalogPath + "/items?limit=50", token).optJSONArray("items");
                     JSONArray entries = new JSONArray();
                     for (int i = 0; rows != null && i < rows.length(); i++) {
                         JSONObject row = rows.optJSONObject(i);
@@ -273,7 +282,9 @@ final class SpotifyApi {
             int status = connection.getResponseCode();
             if (status == 403) throw new IOException("Spotify restricts playlist tracks to owners and collaborators, and development apps to approved accounts.");
             if (status == 401 || (form != null && status == 400)) throw new SpotifySessionExpired();
-            if (status != 200) throw new IOException("Spotify details aren’t available right now.");
+            if (status == 404) throw new IOException("Spotify couldn’t find this item for your account (404).");
+            if (status == 429) throw new IOException("Spotify is rate-limiting lookups (429). Try again in a moment.");
+            if (status != 200) throw new IOException("Spotify couldn’t load the details (HTTP " + status + ").");
             return new JSONObject(new String(IncomingShare.read(connection.getInputStream(), 4 * 1024 * 1024), StandardCharsets.UTF_8));
         } catch (java.net.SocketTimeoutException error) {
             throw new IOException("Spotify took too long to respond. Try again.");
