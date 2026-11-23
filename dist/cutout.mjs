@@ -21,6 +21,8 @@ function roundedRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+const LYRIC_LINE_LIMIT = 15;
+
 export function createCutout(openCrop) {
   const $ = id => document.getElementById(`cutout-${id}`);
   const view = $('canvas');
@@ -344,13 +346,13 @@ export function createCutout(openCrop) {
   function updateEntryList(preselect = true) {
     const layout = $('layout').value;
     const lyrics = layout === 'lyrics';
-    const limit = lyrics ? 6 : 4;
+    const limit = lyrics ? LYRIC_LINE_LIMIT : 4;
     $('entry-editor').hidden = layout === 'cover';
     $('lookup').hidden = lyrics ? !incoming?.fetchLyrics : layout !== 'tracklist' || !incoming?.connectSpotify;
     $('lookup').textContent = lyrics ? 'Find lyrics on LRCLIB' : spotifyConnected ? 'Load Spotify tracks' : 'Connect Spotify to load tracks';
     $('lyrics-source').hidden = !lyrics || lyricsMatches.length === 0;
     $('entry-label').textContent = lyrics ? 'Paste lyrics' : 'Add playlist tracks';
-    $('entry-hint').textContent = lyrics ? 'Choose up to 6 lines for the card.'
+    $('entry-hint').textContent = lyrics ? `Choose 1 to ${LYRIC_LINE_LIMIT} lines for the card.`
       : 'Enter one track per line as Title — Artist, then choose up to 4.';
     $('entry-list').replaceChildren();
     if (layout === 'cover') return;
@@ -544,7 +546,7 @@ export function createCutout(openCrop) {
     entryDraft.lyrics = $('entries').value;
     updateEntryList(false);
     markCardDirty();
-    lookupStatus('Lyrics from LRCLIB. Choose up to 6 lines for the card.');
+    lookupStatus(`Lyrics from LRCLIB. Choose 1 to ${LYRIC_LINE_LIMIT} lines for the card.`);
   };
 
   globalThis.pairwiseShareCard = async (id, title, link, kind, creator, path, error) => {
