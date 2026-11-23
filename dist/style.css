@@ -284,3 +284,8 @@ body:has(#crop-dialog[open]) { overflow: hidden; }
 .cutout-entry-list { display: grid; gap: 2px; max-height: 200px; overflow: auto; }
 .cutout-entry-list label { margin: 0; min-height: 36px; overflow-wrap: anywhere; }
 .cutout-card-options[hidden] { display: none; }
+
+#cutout-spotify-setup > summary { cursor: pointer; }
+#cutout-spotify-setup code { display: block; margin-bottom: 10px; overflow-wrap: anywhere; font-size: .84rem; }
+#cutout-spotify-setup .cutout-buttons { margin-top: 8px; }
+#cutout-entry-editor > .button { margin-bottom: 8px; }

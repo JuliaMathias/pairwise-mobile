@@ -1,5 +1,6 @@
 import { detectCard, removeColor, spotifyShareLink, visibleBounds } from './cutout-core.mjs';
 import { downloadBlob, encodePng, readPhotos } from './photos.mjs';
+import { matchingLyrics, songLookupTitle } from './lyrics-search.mjs';
 import { createShareCard } from './share-card.mjs';
 import { safePrefix } from './core.mjs';
 
@@ -37,6 +38,11 @@ export function createCutout(openCrop) {
   let awaitingLink = '';
   let entryDraft = { lyrics: '', tracklist: '' };
   let queuedFrame = 0;
+  let spotifyConnected = false;
+  let lookupSequence = 0;
+  let lyricsMatches = [];
+  let lyricsRequest = '';
+  let spotifyRequest = '';
 
   function inform(text) { $('status').textContent = text; }
 
@@ -49,6 +55,7 @@ export function createCutout(openCrop) {
     $('layout').disabled = busy;
     $('creator').disabled = busy;
     $('entries').disabled = busy;
+    $('lookup').disabled = busy || Boolean(lyricsRequest || spotifyRequest);
     $('entry-list').querySelectorAll('input').forEach(box => { box.disabled = busy; });
     $('save').disabled = busy || !photo || (generatedCard && dirtyCard);
     $('load').disabled = busy;
@@ -329,11 +336,19 @@ export function createCutout(openCrop) {
     incoming.fetchCard(sharedLink);
   }
 
-  function updateEntryList() {
+  function lookupStatus(message) {
+    $('lookup-status').hidden = !message;
+    $('lookup-status').textContent = message;
+  }
+
+  function updateEntryList(preselect = true) {
     const layout = $('layout').value;
     const lyrics = layout === 'lyrics';
     const limit = lyrics ? 6 : 4;
     $('entry-editor').hidden = layout === 'cover';
+    $('lookup').hidden = lyrics ? !incoming?.fetchLyrics : layout !== 'tracklist' || !incoming?.connectSpotify;
+    $('lookup').textContent = lyrics ? 'Find lyrics on LRCLIB' : spotifyConnected ? 'Load Spotify tracks' : 'Connect Spotify to load tracks';
+    $('lyrics-source').hidden = !lyrics || lyricsMatches.length === 0;
     $('entry-label').textContent = lyrics ? 'Paste lyrics' : 'Add playlist tracks';
     $('entry-hint').textContent = lyrics ? 'Choose up to 6 lines for the card.'
       : 'Enter one track per line as Title — Artist, then choose up to 4.';
@@ -346,7 +361,7 @@ export function createCutout(openCrop) {
       const box = document.createElement('input');
       box.type = 'checkbox';
       box.value = line;
-      box.checked = index < limit;
+      box.checked = preselect && index < limit;
       box.onchange = () => {
         if ($('entry-list').querySelectorAll('input:checked').length > limit) {
           box.checked = false;
@@ -380,9 +395,11 @@ export function createCutout(openCrop) {
 
   $('song').onclick = fetchShareCard;
   $('layout').onchange = () => {
-    $('entries').value = entryDraft[$('layout').value] ?? '';
-    updateEntryList();
-    if ($('layout').value === 'cover') $('preview-card').click();
+    const layout = $('layout').value;
+    $('entries').value = entryDraft[layout] ?? '';
+    lookupStatus('');
+    updateEntryList(layout !== 'lyrics' || !lyricsMatches.length);
+    if (layout === 'cover' || (layout === 'tracklist' && $('entries').value)) $('preview-card').click();
     else markCardDirty();
   };
   $('creator').oninput = markCardDirty;
@@ -400,7 +417,134 @@ export function createCutout(openCrop) {
     finally { busy = false; controls(); }
   };
 
-  globalThis.pairwiseShareCard = async (id, title, link, kind, creator, error) => {
+  function requestSpotifyDetails() {
+    if (!metadata?.path || !spotifyConnected || spotifyRequest) return;
+    spotifyRequest = String(++lookupSequence);
+    $('spotify-status').textContent = 'Loading Spotify details…';
+    if ($('layout').value === 'tracklist') lookupStatus('Loading Spotify tracks…');
+    controls();
+    incoming.fetchSpotifyDetails(spotifyRequest, metadata.path);
+  }
+
+  $('spotify-connect').onclick = () => {
+    $('spotify-status').textContent = 'Opening Spotify sign-in…';
+    incoming?.connectSpotify($('spotify-client').value.trim());
+  };
+  $('spotify-disconnect').onclick = () => incoming?.disconnectSpotify();
+  globalThis.pairwiseSpotifyStatus = (connected, message) => {
+    spotifyConnected = connected;
+    $('spotify-summary').textContent = connected ? 'Spotify connected' : 'Connect Spotify for artists and playlist tracks';
+    $('spotify-connect').hidden = connected;
+    $('spotify-disconnect').hidden = !connected;
+    $('spotify-client').parentElement.hidden = connected;
+    $('spotify-status').textContent = message;
+    if (connected) {
+      $('spotify-setup').open = false;
+      requestSpotifyDetails();
+    } else {
+      spotifyRequest = '';
+    }
+    $('lookup').textContent = $('layout').value === 'tracklist'
+      ? connected ? 'Load Spotify tracks' : 'Connect Spotify to load tracks'
+      : 'Find lyrics on LRCLIB';
+    controls();
+  };
+
+  globalThis.pairwiseSpotifyDetails = (key, data, error) => {
+    if (key !== spotifyRequest || !metadata) return;
+    spotifyRequest = '';
+    controls();
+    const { creator, entries, leadArtist, duration, title } = JSON.parse(data);
+    const layout = $('layout').value;
+    if (error) {
+      $('spotify-status').textContent = error;
+      $('spotify-setup').open = true;
+      if (layout === 'tracklist') lookupStatus(error);
+      return;
+    }
+    $('spotify-status').textContent = '';
+    metadata.leadArtist = leadArtist;
+    metadata.duration = duration;
+    metadata.lookupTitle = title;
+    if (creator && !$('creator').value.trim()) {
+      $('creator').value = creator;
+      markCardDirty();
+    }
+    if (entries?.length && !entryDraft.tracklist) {
+      entryDraft.tracklist = entries.join('\n');
+      if (layout === 'tracklist') {
+        $('entries').value = entryDraft.tracklist;
+        updateEntryList();
+        markCardDirty();
+      }
+    }
+    if (layout === 'tracklist') lookupStatus(entries?.length ? 'Tracks loaded. Choose up to 4.'
+      : 'Spotify returned no tracks. You can enter them below.');
+    if ((layout === 'cover' && dirtyCard) || (layout === 'tracklist' && entries?.length && $('entries').value)) {
+      $('preview-card').click();
+    }
+  };
+
+  $('lookup').onclick = () => {
+    if (!metadata || busy) return;
+    if ($('layout').value === 'tracklist') {
+      if (spotifyConnected) requestSpotifyDetails();
+      else $('spotify-setup').open = true;
+      return;
+    }
+    if (lyricsRequest) return;
+    lyricsRequest = String(++lookupSequence);
+    lyricsMatches = [];
+    $('lyrics-source').hidden = true;
+    const artist = metadata.leadArtist || $('creator').value.trim();
+    lookupStatus('Searching LRCLIB…');
+    incoming.fetchLyrics(lyricsRequest, songLookupTitle(metadata.lookupTitle || metadata.title), artist);
+    controls();
+  };
+
+  globalThis.pairwiseLyrics = (key, result, error) => {
+    if (key !== lyricsRequest || !metadata) return;
+    lyricsRequest = '';
+    controls();
+    if ($('layout').value !== 'lyrics') return;
+    if (error) {
+      lookupStatus(error);
+      return;
+    }
+    try {
+      lyricsMatches = matchingLyrics(JSON.parse(result), {
+        title: metadata.lookupTitle || metadata.title,
+        artist: metadata.leadArtist || $('creator').value.trim(),
+        duration: metadata.duration,
+      });
+      if (!lyricsMatches.length) {
+        lookupStatus('LRCLIB found no matching lyrics. Try entering the artist, or paste lyrics below.');
+        return;
+      }
+      $('lyrics-results').replaceChildren(new Option('Choose a recording', ''));
+      lyricsMatches.forEach((recording, index) => {
+        const details = [recording.artistName, recording.albumName].filter(Boolean).join(' · ');
+        $('lyrics-results').append(new Option(details || recording.trackName, String(index)));
+      });
+      $('lyrics-source').hidden = false;
+      lookupStatus('Choose a recording to load its lyrics, then select the lines you want.');
+    } catch {
+      lookupStatus('Couldn’t read the results from LRCLIB. You can still paste lyrics below.');
+    }
+  };
+
+  $('lyrics-results').onchange = () => {
+    const recording = lyricsMatches[$('lyrics-results').value];
+    if (!recording) return;
+    if (!$('creator').value.trim()) $('creator').value = recording.artistName;
+    $('entries').value = recording.plainLyrics.slice(0, 16000);
+    entryDraft.lyrics = $('entries').value;
+    updateEntryList(false);
+    markCardDirty();
+    lookupStatus('Lyrics from LRCLIB. Choose up to 6 lines for the card.');
+  };
+
+  globalThis.pairwiseShareCard = async (id, title, link, kind, creator, path, error) => {
     if (link !== awaitingLink) return;
     try {
       if (error) throw new Error(error);
@@ -408,7 +552,8 @@ export function createCutout(openCrop) {
       if (!response.ok) throw new Error('Couldn’t load the cover image.');
       const blob = await response.blob();
       if (link !== awaitingLink) return;
-      metadata = { title, kind, blob };
+      metadata = { title, kind, blob, path };
+      $('spotify-setup').hidden = !incoming?.connectSpotify;
       $('layout').value = 'cover';
       for (const [value, available] of [['lyrics', kind !== 'playlist'], ['tracklist', kind === 'playlist']]) {
         const option = $('layout').querySelector(`[value="${value}"]`);
@@ -420,6 +565,7 @@ export function createCutout(openCrop) {
       $('entries').value = '';
       updateEntryList();
       await renderShareCard();
+      if (spotifyConnected) requestSpotifyDetails();
     } catch (failure) { inform(failure.message); }
     finally {
       if (link === awaitingLink) {
@@ -439,6 +585,9 @@ export function createCutout(openCrop) {
       busy = false;
     }
     metadata = null;
+    lyricsMatches = [];
+    lyricsRequest = spotifyRequest = '';
+    lookupStatus('');
     dirtyCard = generatedCard;
     sharedLink = link;
     $('share').hidden = !link;

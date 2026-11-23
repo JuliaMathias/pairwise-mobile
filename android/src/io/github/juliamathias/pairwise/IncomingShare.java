@@ -17,6 +17,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.net.ssl.HttpsURLConnection;
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -24,6 +25,7 @@ public final class IncomingShare {
     private static final int SHARED_IMAGE_LIMIT = 32 * 1024 * 1024;
     private final MainActivity activity;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final SpotifyApi spotify;
     private volatile ImagePayload incomingImage;
     private volatile ImagePayload coverImage;
     private JSONObject pendingShare;
@@ -31,6 +33,7 @@ public final class IncomingShare {
 
     IncomingShare(MainActivity activity) {
         this.activity = activity;
+        spotify = new SpotifyApi(activity, worker);
     }
 
     @JavascriptInterface
@@ -42,7 +45,7 @@ public final class IncomingShare {
     }
 
     void receive(Intent intent) {
-        if (intent == null || !Intent.ACTION_SEND.equals(intent.getAction())) return;
+        if (intent == null || spotify.receive(intent) || !Intent.ACTION_SEND.equals(intent.getAction())) return;
         String type = intent.getType();
         CharSequence extra = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
         String text = extra == null ? "" : extra.subSequence(0, Math.min(4096, extra.length())).toString();
@@ -95,7 +98,7 @@ public final class IncomingShare {
     @JavascriptInterface
     public void fetchCard(String link) {
         if (!validLink(link)) {
-            sendCard("", "", link, "", "", "Use a Spotify song or playlist link.");
+            sendCard("", "", link, "", "", "", "Use a Spotify song or playlist link.");
             return;
         }
         worker.execute(() -> {
@@ -104,8 +107,9 @@ public final class IncomingShare {
                 byte[] metadata = fetch(endpoint, 64 * 1024);
                 JSONObject embed = new JSONObject(new String(metadata, StandardCharsets.UTF_8));
                 String title = embed.getString("title");
-                String kind = link.contains("/playlist/") || embed.optString("iframe_url").contains("/embed/playlist/")
-                    || embed.optString("html").contains("/embed/playlist/") ? "playlist" : "track";
+                String path = SpotifyApi.itemPath(link);
+                if (path.isEmpty()) path = SpotifyApi.itemPath(embed.optString("iframe_url") + " " + embed.optString("html"));
+                String kind = path.startsWith("playlist/") ? "playlist" : "track";
                 String creator = embed.optString("author_name");
                 URL cover = new URL(embed.getString("thumbnail_url"));
                 String host = cover.getHost().toLowerCase(Locale.ROOT);
@@ -115,10 +119,56 @@ public final class IncomingShare {
                 }
                 byte[] bytes = fetch(cover, 3 * 1024 * 1024);
                 coverImage = new ImagePayload(bytes, imageMime(bytes));
-                sendCard(coverImage.id, title, link, kind, creator, "");
+                sendCard(coverImage.id, title, link, kind, creator, path, "");
             } catch (IOException | RuntimeException | JSONException error) {
-                sendCard("", "", link, "", "", "Couldn’t get the title and cover from Spotify. You can still add a screenshot.");
+                sendCard("", "", link, "", "", "", "Couldn’t get the title and cover from Spotify. You can still add a screenshot.");
             }
+        });
+    }
+
+    @JavascriptInterface
+    public void connectSpotify(String clientId) { spotify.connect(clientId); }
+
+    @JavascriptInterface
+    public void disconnectSpotify() { spotify.disconnect(); }
+
+    @JavascriptInterface
+    public void fetchSpotifyDetails(String key, String path) { spotify.fetchDetails(key, path); }
+
+    @JavascriptInterface
+    public void fetchLyrics(String key, String title, String artist) {
+        if (key == null || key.length() > 200 || title == null || title.trim().isEmpty() || title.length() > 300 ||
+                artist == null || artist.length() > 200) return;
+        worker.execute(() -> {
+            String result = "[]";
+            String error = "";
+            try {
+                Uri.Builder url = Uri.parse("https://lrclib.net/api/search").buildUpon()
+                    .appendQueryParameter("track_name", title);
+                if (!artist.trim().isEmpty()) url.appendQueryParameter("artist_name", artist);
+                byte[] response = fetch(new URL(url.build().toString()), 2 * 1024 * 1024);
+                JSONArray matches = new JSONArray(new String(response, StandardCharsets.UTF_8));
+                JSONArray compact = new JSONArray();
+                for (int i = 0; i < Math.min(20, matches.length()); i++) {
+                    JSONObject match = matches.optJSONObject(i);
+                    if (match == null) continue;
+                    String lyrics = match.optString("plainLyrics");
+                    if (lyrics.trim().isEmpty() || match.optBoolean("instrumental")) continue;
+                    compact.put(new JSONObject()
+                        .put("trackName", match.optString("trackName"))
+                        .put("artistName", match.optString("artistName"))
+                        .put("albumName", match.optString("albumName"))
+                        .put("duration", match.optInt("duration"))
+                        .put("plainLyrics", lyrics.substring(0, Math.min(8000, lyrics.length()))));
+                }
+                result = compact.toString();
+            } catch (IOException | JSONException failure) {
+                error = "Couldn’t reach LRCLIB. Try again or paste lyrics below.";
+            }
+            String values = result;
+            String message = error;
+            activity.runOnUiThread(() -> activity.runScript("window.pairwiseLyrics?.("
+                + JSONObject.quote(key) + "," + JSONObject.quote(values) + "," + JSONObject.quote(message) + ")"));
         });
     }
 
@@ -128,10 +178,10 @@ public final class IncomingShare {
         );
     }
 
-    private void sendCard(String id, String title, String link, String kind, String creator, String error) {
+    private void sendCard(String id, String title, String link, String kind, String creator, String path, String error) {
         activity.runOnUiThread(() -> activity.runScript("window.pairwiseShareCard?.("
             + JSONObject.quote(id) + "," + JSONObject.quote(title) + "," + JSONObject.quote(link) + "," + JSONObject.quote(kind) + ","
-            + JSONObject.quote(creator) + "," + JSONObject.quote(error) + ")"));
+            + JSONObject.quote(creator) + "," + JSONObject.quote(path) + "," + JSONObject.quote(error) + ")"));
     }
 
     WebResourceResponse asset(String id) {
@@ -168,6 +218,9 @@ public final class IncomingShare {
         HttpsURLConnection connection = (HttpsURLConnection) url.openConnection();
         try {
             connection.setInstanceFollowRedirects(false);
+            if ("lrclib.net".equals(url.getHost())) {
+                connection.setRequestProperty("User-Agent", "Pairwise/1.4.0 (https://github.com/JuliaMathias/pairwise-mobile)");
+            }
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(8000);
             if (connection.getResponseCode() != 200) throw new IOException("Request failed");
@@ -177,7 +230,7 @@ public final class IncomingShare {
         }
     }
 
-    private static byte[] read(InputStream source, int limit) throws IOException {
+    static byte[] read(InputStream source, int limit) throws IOException {
         if (source == null) throw new IOException("No stream");
         try (InputStream stream = source; ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
             byte[] chunk = new byte[16 * 1024];
