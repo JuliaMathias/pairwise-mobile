@@ -276,3 +276,11 @@ body:has(#crop-dialog[open]) { overflow: hidden; }
 
 #cutout-edit.song-card > :not(#cutout-tools-title, .cutout-stage) { display: none; }
 #cutout-edit.song-card canvas { cursor: default; touch-action: auto; }
+
+.cutout-card-options { display: grid; gap: 12px; border-top: 1px solid var(--line, #d9dfd4); margin-top: 16px; padding-top: 12px; }
+.cutout-field { display: grid; gap: 6px; }
+.cutout-field input, .cutout-field textarea { width: 100%; color: inherit; font: inherit; border: 1px solid #c9d1c5; border-radius: 12px; padding: 10px 12px; background: #fff; }
+.cutout-field textarea { resize: vertical; }
+.cutout-entry-list { display: grid; gap: 2px; max-height: 200px; overflow: auto; }
+.cutout-entry-list label { margin: 0; min-height: 36px; overflow-wrap: anywhere; }
+.cutout-card-options[hidden] { display: none; }

@@ -1,5 +1,6 @@
 import { detectCard, removeColor, spotifyShareLink, visibleBounds } from './cutout-core.mjs';
 import { downloadBlob, encodePng, readPhotos } from './photos.mjs';
+import { createShareCard } from './share-card.mjs';
 import { safePrefix } from './core.mjs';
 
 const incoming = globalThis.PairwiseShare;
@@ -30,16 +31,26 @@ export function createCutout(openCrop) {
   let mode = 'brush';
   let busy = false;
   let sharedLink = '';
-  let songCard = false;
+  let generatedCard = false;
+  let metadata = null;
+  let dirtyCard = false;
+  let awaitingLink = '';
+  let entryDraft = { lyrics: '', tracklist: '' };
   let queuedFrame = 0;
 
   function inform(text) { $('status').textContent = text; }
 
   function controls() {
     $('edit').hidden = !photo;
-    $('edit').classList.toggle('song-card', songCard);
-    $('tools-title').textContent = songCard ? 'Song card preview' : 'Cutout tools';
-    $('save').disabled = busy || !photo;
+    $('edit').classList.toggle('song-card', generatedCard);
+    $('tools-title').textContent = generatedCard ? 'Spotify card preview' : 'Cutout tools';
+    $('card-options').hidden = !metadata;
+    $('preview-card').disabled = busy;
+    $('layout').disabled = busy;
+    $('creator').disabled = busy;
+    $('entries').disabled = busy;
+    $('entry-list').querySelectorAll('input').forEach(box => { box.disabled = busy; });
+    $('save').disabled = busy || !photo || (generatedCard && dirtyCard);
     $('load').disabled = busy;
     $('song').disabled = busy;
     for (const id of ['brush', 'color', 'find', 'crop', 'reset', 'radius', 'tolerance', 'connected', 'size', 'trim', 'card-type']) $(id).disabled = busy;
@@ -141,7 +152,7 @@ export function createCutout(openCrop) {
     if (photo) URL.revokeObjectURL(photo.url);
     photo = next;
     original = image;
-    songCard = generated;
+    generatedCard = generated;
     work.width = photo.width;
     work.height = photo.height;
     steps = [];
@@ -187,7 +198,7 @@ export function createCutout(openCrop) {
   }
 
   view.onpointerdown = event => {
-    if (!photo || songCard || busy || !event.isPrimary || event.button !== 0) return;
+    if (!photo || generatedCard || busy || !event.isPrimary || event.button !== 0) return;
     const point = position(event);
     if (mode === 'color') {
       const rgba = context.getImageData(point.x, point.y, 1, 1).data;
@@ -292,16 +303,16 @@ export function createCutout(openCrop) {
       const base = safePrefix(photo.name.replace(/\.[^.]+$/, '')) || 'pairwise';
       const result = await downloadBlob(await encodePng(canvas), `${base}-cutout.png`);
       const saved = result === 'saved' ? 'PNG saved to Downloads.' : 'PNG download requested.';
-      inform(songCard ? `${saved} Include the Spotify track link in your post.` : saved);
+      inform(generatedCard ? `${saved} Include the Spotify link in your post.` : saved);
     } catch (error) { inform(error.message); }
     finally { busy = false; controls(); }
   };
 
   $('copy').onclick = async () => {
     try {
-      if (incoming?.copyTrackLink) incoming.copyTrackLink(sharedLink);
+      if (incoming?.copyLink) incoming.copyLink(sharedLink);
       else await navigator.clipboard.writeText(sharedLink);
-      inform('Track link copied.');
+      inform('Spotify link copied.');
     } catch {
       $('link').focus();
       $('link').select();
@@ -309,47 +320,137 @@ export function createCutout(openCrop) {
     }
   };
 
-  function makeSongCard() {
-    if (!incoming?.makeSongCard || !sharedLink || busy) return;
+  function fetchShareCard() {
+    if (!incoming?.fetchCard || !sharedLink || busy) return;
     busy = true;
+    awaitingLink = sharedLink;
     controls();
-    inform('Getting the song title and cover from Spotify…');
-    incoming.makeSongCard(sharedLink);
+    inform('Getting the title and cover from Spotify…');
+    incoming.fetchCard(sharedLink);
   }
 
-  $('song').onclick = makeSongCard;
+  function updateEntryList() {
+    const layout = $('layout').value;
+    const lyrics = layout === 'lyrics';
+    const limit = lyrics ? 6 : 4;
+    $('entry-editor').hidden = layout === 'cover';
+    $('entry-label').textContent = lyrics ? 'Paste lyrics' : 'Add playlist tracks';
+    $('entry-hint').textContent = lyrics ? 'Choose up to 6 lines for the card.'
+      : 'Enter one track per line as Title — Artist, then choose up to 4.';
+    $('entry-list').replaceChildren();
+    if (layout === 'cover') return;
+    const entries = $('entries').value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    entries.forEach((line, index) => {
+      const row = document.createElement('label');
+      row.className = 'cutout-check';
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.value = line;
+      box.checked = index < limit;
+      box.onchange = () => {
+        if ($('entry-list').querySelectorAll('input:checked').length > limit) {
+          box.checked = false;
+          inform(`Choose up to ${limit} ${lyrics ? 'lines' : 'tracks'}.`);
+          return;
+        }
+        markCardDirty();
+      };
+      row.append(box, document.createTextNode(line));
+      $('entry-list').append(row);
+    });
+  }
 
-  globalThis.pairwiseSongCard = async (id, title, track, error) => {
+  function markCardDirty() {
+    dirtyCard = true;
+    controls();
+  }
+
+  async function renderShareCard() {
+    const layout = $('layout').value;
+    const entries = Array.from($('entry-list').querySelectorAll('input:checked'), box => box.value);
+    if (layout !== 'cover' && !entries.length) {
+      throw new Error(layout === 'lyrics' ? 'Paste lyrics and choose at least one line.' : 'Add tracks and select at least one.');
+    }
+    const { blob, title, kind } = metadata;
+    const card = await createShareCard(blob, { title, kind, layout, entries, subtitle: $('creator').value.trim() });
+    await load(new File([card], `${safePrefix(title) || 'spotify'}-${layout}.png`, { type: 'image/png' }), { generated: true });
+    dirtyCard = false;
+    inform('Card ready. Save it and include the Spotify link in your post.');
+  }
+
+  $('song').onclick = fetchShareCard;
+  $('layout').onchange = () => {
+    $('entries').value = entryDraft[$('layout').value] ?? '';
+    updateEntryList();
+    if ($('layout').value === 'cover') $('preview-card').click();
+    else markCardDirty();
+  };
+  $('creator').oninput = markCardDirty;
+  $('entries').oninput = () => {
+    entryDraft[$('layout').value] = $('entries').value;
+    updateEntryList();
+    markCardDirty();
+  };
+  $('preview-card').onclick = async () => {
+    if (busy || !metadata) return;
+    busy = true;
+    controls();
+    try { await renderShareCard(); }
+    catch (error) { inform(error.message); }
+    finally { busy = false; controls(); }
+  };
+
+  globalThis.pairwiseShareCard = async (id, title, link, kind, creator, error) => {
+    if (link !== awaitingLink) return;
     try {
       if (error) throw new Error(error);
       const response = await fetch(`./shared-${id}`);
-      if (!response.ok) throw new Error('Couldn’t load the song card.');
-      const artUrl = URL.createObjectURL(await response.blob());
-      try {
-        const card = await createSongCard(artUrl, title, track);
-        await load(new File([card], `${safePrefix(title) || 'spotify-song'}.png`, { type: 'image/png' }), { generated: true });
-      } finally {
-        URL.revokeObjectURL(artUrl);
+      if (!response.ok) throw new Error('Couldn’t load the cover image.');
+      const blob = await response.blob();
+      if (link !== awaitingLink) return;
+      metadata = { title, kind, blob };
+      $('layout').value = 'cover';
+      for (const [value, available] of [['lyrics', kind !== 'playlist'], ['tracklist', kind === 'playlist']]) {
+        const option = $('layout').querySelector(`[value="${value}"]`);
+        option.hidden = option.disabled = !available;
       }
-      inform('Song card ready. Save it and include the Spotify link in your post.');
+      $('creator-label').textContent = kind === 'playlist' ? 'Playlist creator (optional)' : 'Artist (optional)';
+      $('creator').value = creator;
+      entryDraft = { lyrics: '', tracklist: '' };
+      $('entries').value = '';
+      updateEntryList();
+      await renderShareCard();
     } catch (failure) { inform(failure.message); }
-    finally { busy = false; controls(); }
+    finally {
+      if (link === awaitingLink) {
+        awaitingLink = '';
+        busy = false;
+        controls();
+      }
+    }
   };
 
   globalThis.pairwiseReceiveShare = async payload => {
     const link = spotifyShareLink(payload.text);
     if (!payload.image && !link && !payload.error && !payload.text) return;
     location.hash = 'cutout';
+    if (awaitingLink) {
+      awaitingLink = '';
+      busy = false;
+    }
+    metadata = null;
+    dirtyCard = generatedCard;
     sharedLink = link;
     $('share').hidden = !link;
     $('link').value = link;
-    $('song').hidden = Boolean(payload.image) || !incoming?.makeSongCard;
+    $('song').hidden = Boolean(payload.image) || !incoming?.fetchCard;
     $('share-note').textContent = payload.image
-      ? 'Pairwise received the image and track link.'
-      : 'Spotify sent a link. Make a song card from the link, or add a screenshot to keep the exact Spotify card or selected lyrics.';
+      ? 'Pairwise received the image and Spotify link.'
+      : 'Build a card from the link, or add a Spotify screenshot to keep its original design.';
     if (!payload.image) {
-      inform(payload.error || (link ? '' : 'Share a Spotify track link or an image.'));
-      if (link && !payload.error) makeSongCard();
+      controls();
+      inform(payload.error || (link ? '' : 'Share a Spotify song, playlist link, or image.'));
+      if (link && !payload.error) fetchShareCard();
       return;
     }
     busy = true;
@@ -364,50 +465,4 @@ export function createCutout(openCrop) {
   };
   controls();
   incoming?.ready();
-}
-
-
-async function createSongCard(url, title, track) {
-  const art = new Image();
-  art.src = url;
-  const logo = new Image();
-  logo.src = './spotify-wordmark.png';
-  await Promise.all([art.decode(), logo.decode()]);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 720;
-  canvas.height = 850;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#f4efe4';
-  roundedRect(ctx, 0, 0, canvas.width, canvas.height, 36);
-  ctx.fill();
-
-  const scale = Math.min(560 / art.naturalWidth, 540 / art.naturalHeight);
-  const w = art.naturalWidth * scale, h = art.naturalHeight * scale;
-  const x = (canvas.width - w) / 2, y = 42 + (540 - h) / 2;
-  ctx.save();
-  roundedRect(ctx, x, y, w, h, Math.min(14, w / 2, h / 2));
-  ctx.clip();
-  ctx.drawImage(art, x, y, w, h);
-  ctx.restore();
-
-  const titleFont = `700 ${title.length > 45 ? 31 : 40}px system-ui`;
-  ctx.font = titleFont;
-  ctx.fillStyle = '#24332c';
-  const lines = [];
-  let line = '';
-  for (const word of title.trim().split(/\s+/)) {
-    const next = line ? `${line} ${word}` : word;
-    if (line && ctx.measureText(next).width > 608) {
-      lines.push(line);
-      line = word;
-    } else line = next;
-  }
-  lines.push(line);
-  lines.slice(0, 3).forEach((value, i) => ctx.fillText(lines.length > 3 && i === 2 ? `${value}…` : value, 56, 630 + i * 43, 608));
-  ctx.drawImage(logo, 56, 746, 120, 120 * logo.naturalHeight / logo.naturalWidth);
-  ctx.fillStyle = '#34463b';
-  ctx.font = '18px system-ui';
-  ctx.fillText(track.replace(/^https:\/\//, ''), 56, 816, 608);
-  return encodePng(canvas);
 }

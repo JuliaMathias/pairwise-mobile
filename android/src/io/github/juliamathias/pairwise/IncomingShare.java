@@ -84,51 +84,54 @@ public final class IncomingShare {
     }
 
     @JavascriptInterface
-    public void copyTrackLink(String track) {
-        if (!validTrack(track)) return;
+    public void copyLink(String link) {
+        if (!validLink(link)) return;
         activity.runOnUiThread(() -> {
             android.content.ClipboardManager clipboard = activity.getSystemService(android.content.ClipboardManager.class);
-            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("Spotify track", track));
+            if (clipboard != null) clipboard.setPrimaryClip(ClipData.newPlainText("Spotify link", link));
         });
     }
 
     @JavascriptInterface
-    public void makeSongCard(String track) {
-        if (!validTrack(track)) {
-            sendCard("", "", track, "This is not a supported Spotify track link.");
+    public void fetchCard(String link) {
+        if (!validLink(link)) {
+            sendCard("", "", link, "", "", "Use a Spotify song or playlist link.");
             return;
         }
         worker.execute(() -> {
             try {
-                URL endpoint = new URL("https://open.spotify.com/oembed?url=" + Uri.encode(track));
+                URL endpoint = new URL("https://open.spotify.com/oembed?url=" + Uri.encode(link));
                 byte[] metadata = fetch(endpoint, 64 * 1024);
                 JSONObject embed = new JSONObject(new String(metadata, StandardCharsets.UTF_8));
                 String title = embed.getString("title");
+                String kind = link.contains("/playlist/") || embed.optString("iframe_url").contains("/embed/playlist/")
+                    || embed.optString("html").contains("/embed/playlist/") ? "playlist" : "track";
+                String creator = embed.optString("author_name");
                 URL cover = new URL(embed.getString("thumbnail_url"));
                 String host = cover.getHost().toLowerCase(Locale.ROOT);
                 if (!"https".equals(cover.getProtocol()) || cover.getPort() != -1 || cover.getUserInfo() != null
-                    || !cover.getPath().startsWith("/image/")
-                    || !(host.equals("i.scdn.co") || host.endsWith(".spotifycdn.com"))) {
+                    || !(host.equals("i.scdn.co") || host.equals("mosaic.scdn.co") || host.endsWith(".spotifycdn.com"))) {
                     throw new IOException("Unknown cover host");
                 }
                 byte[] bytes = fetch(cover, 3 * 1024 * 1024);
                 coverImage = new ImagePayload(bytes, imageMime(bytes));
-                sendCard(coverImage.id, title, track, "");
+                sendCard(coverImage.id, title, link, kind, creator, "");
             } catch (IOException | RuntimeException | JSONException error) {
-                sendCard("", "", track, "Couldn’t get the song from Spotify. You can still add a screenshot.");
+                sendCard("", "", link, "", "", "Couldn’t get the title and cover from Spotify. You can still add a screenshot.");
             }
         });
     }
 
-    private boolean validTrack(String track) {
-        return track != null && track.length() < 200 && track.matches(
-            "https://(?:open\\.spotify\\.com/(?:intl-[a-z]{2}/)?track/[A-Za-z0-9]{22}|spotify\\.link/[A-Za-z0-9_-]+)"
+    private boolean validLink(String link) {
+        return link != null && link.length() < 200 && link.matches(
+            "https://(?:open\\.spotify\\.com/(?:intl-[a-z]{2}/)?(?:track|playlist)/[A-Za-z0-9]{22}|spotify\\.link/[A-Za-z0-9_-]+)"
         );
     }
 
-    private void sendCard(String id, String title, String track, String error) {
-        activity.runOnUiThread(() -> activity.runScript("window.pairwiseSongCard?.("
-            + JSONObject.quote(id) + "," + JSONObject.quote(title) + "," + JSONObject.quote(track) + "," + JSONObject.quote(error) + ")"));
+    private void sendCard(String id, String title, String link, String kind, String creator, String error) {
+        activity.runOnUiThread(() -> activity.runScript("window.pairwiseShareCard?.("
+            + JSONObject.quote(id) + "," + JSONObject.quote(title) + "," + JSONObject.quote(link) + "," + JSONObject.quote(kind) + ","
+            + JSONObject.quote(creator) + "," + JSONObject.quote(error) + ")"));
     }
 
     WebResourceResponse asset(String id) {

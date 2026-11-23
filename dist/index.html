@@ -49,10 +49,26 @@
       <section class="settings cutout-share" id="cutout-share" hidden aria-labelledby="cutout-share-title">
         <h2 id="cutout-share-title">Spotify share</h2>
         <p class="hint" id="cutout-share-note"></p>
-        <input id="cutout-link" type="url" aria-label="Shared Spotify track link" readonly>
+        <input id="cutout-link" type="url" aria-label="Shared Spotify link" readonly>
         <div class="cutout-buttons">
-          <button class="button add-secondary" id="cutout-song" hidden>Make song card</button>
-          <button class="button add-secondary" id="cutout-copy">Copy track link</button>
+          <button class="button add-secondary" id="cutout-song" hidden>Make a card</button>
+          <button class="button add-secondary" id="cutout-copy">Copy link</button>
+        </div>
+        <div class="cutout-card-options" id="cutout-card-options" hidden>
+          <label class="cutout-format">Card layout
+            <select id="cutout-layout"><option value="cover">Cover</option><option value="lyrics">Lyrics</option><option value="tracklist">Tracklist</option></select>
+          </label>
+          <label class="cutout-field"><span id="cutout-creator-label">Artist (optional)</span>
+            <input type="text" id="cutout-creator" maxlength="100">
+          </label>
+          <div id="cutout-entry-editor" hidden>
+            <label class="cutout-field"><span id="cutout-entry-label">Paste lyrics</span>
+              <textarea id="cutout-entries" rows="4" maxlength="2400"></textarea>
+            </label>
+            <p class="hint" id="cutout-entry-hint"></p>
+            <div class="cutout-entry-list" id="cutout-entry-list"></div>
+          </div>
+          <button class="button add-secondary" id="cutout-preview-card">Update preview</button>
         </div>
       </section>
       <section class="settings" id="cutout-edit" hidden aria-labelledby="cutout-tools-title">
@@ -63,7 +79,7 @@
           <button class="button add-secondary" id="cutout-find">Find card</button>
         </div>
         <label class="cutout-format">Card type
-          <select id="cutout-card-type"><option value="auto">Auto</option><option value="song">Song</option><option value="lyrics">Lyrics</option></select>
+          <select id="cutout-card-type"><option value="auto">Auto</option><option value="song">Song</option><option value="lyrics">Lyrics</option><option value="playlist-cover">Playlist cover</option><option value="playlist-tracklist">Playlist tracklist</option></select>
         </label>
         <p class="hint" id="cutout-help">Draw directly on the image to erase.</p>
         <div class="cutout-stage">
