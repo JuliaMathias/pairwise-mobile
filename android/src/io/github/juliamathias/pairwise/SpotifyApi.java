@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
+import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
 import java.util.StringJoiner;
 import java.util.concurrent.ExecutorService;
@@ -25,10 +25,11 @@ final class SpotifyApi {
     private final MainActivity activity;
     private final ExecutorService worker;
     private final SecureRandom random = new SecureRandom();
-    private String state = "";
-    private String verifier = "";
-    private String pendingClient = "";
-    private long pendingUntil;
+    private final SpotifySessionStore store;
+    private boolean restored;
+    private boolean webReady;
+    private String lastStatus = "";
+    private String resumeLink = "";
     private String client = "";
     private String access = "";
     private String refresh = "";
@@ -37,6 +38,7 @@ final class SpotifyApi {
     SpotifyApi(MainActivity activity, ExecutorService worker) {
         this.activity = activity;
         this.worker = worker;
+        this.store = new SpotifySessionStore(activity);
     }
 
     static String itemPath(String url) {
@@ -44,18 +46,41 @@ final class SpotifyApi {
         return match.find() ? match.group(1) + "/" + match.group(2) : "";
     }
 
-    void connect(String clientId) {
+    void ready() {
         worker.execute(() -> {
+            restore();
+            webReady = true;
+            status(lastStatus);
+        });
+    }
+
+    private void restore() {
+        if (restored) return;
+        restored = true;
+        JSONObject saved = store.load("session");
+        client = saved.optString("client");
+        refresh = saved.optString("refresh");
+    }
+
+    private boolean connected() {
+        return !access.isEmpty() || !refresh.isEmpty();
+    }
+
+    void connect(String clientId, String link) {
+        worker.execute(() -> {
+            restore();
             if (clientId == null || !clientId.matches("[a-fA-F0-9]{32}")) {
-                status(!access.isEmpty(), "Enter the Client ID from your Spotify developer app.");
+                status("Enter the Client ID from your Spotify developer app.");
                 return;
             }
-            pendingClient = clientId;
-            state = randomValue();
-            verifier = randomValue();
-            pendingUntil = System.currentTimeMillis() + 10 * 60_000;
+            store.saveClientId(clientId);
+            String state = randomValue();
+            String verifier = randomValue();
             try {
                 byte[] hash = MessageDigest.getInstance("SHA-256").digest(verifier.getBytes(StandardCharsets.US_ASCII));
+                store.save("pending", new JSONObject().put("client", clientId).put("state", state)
+                    .put("verifier", verifier).put("link", link)
+                    .put("expires", System.currentTimeMillis() + 10 * 60_000));
                 Uri url = Uri.parse(ACCOUNTS + "/authorize").buildUpon()
                     .appendQueryParameter("client_id", clientId)
                     .appendQueryParameter("response_type", "code")
@@ -67,41 +92,51 @@ final class SpotifyApi {
                     .build();
                 activity.runOnUiThread(() -> {
                     try { activity.startActivity(new Intent(Intent.ACTION_VIEW, url)); }
-                    catch (android.content.ActivityNotFoundException error) { status(false, "Open Spotify sign-in with a browser."); }
+                    catch (android.content.ActivityNotFoundException error) {
+                        worker.execute(() -> status("Install or enable a browser to sign in to Spotify."));
+                    }
                 });
-            } catch (NoSuchAlgorithmException error) {
-                status(false, "Spotify sign-in could not start.");
+            } catch (GeneralSecurityException | IOException | JSONException error) {
+                status("Pairwise couldn’t save the sign-in request. Try again.");
             }
         });
     }
 
-    boolean receive(Intent intent) {
+    boolean receive(Intent intent, boolean coldStart) {
         if (!Intent.ACTION_VIEW.equals(intent.getAction())) return false;
         Uri uri = intent.getData();
-        if (uri == null || !REDIRECT.equals(uri.buildUpon().clearQuery().fragment(null).build().toString())) return false;
+        if (uri == null || !uri.isHierarchical() || !"io.github.juliamathias.pairwise".equals(uri.getScheme()) ||
+                !"spotify-callback".equals(uri.getEncodedAuthority())) return false;
         worker.execute(() -> {
-            if (state.isEmpty() || System.currentTimeMillis() > pendingUntil ||
-                    !state.equals(uri.getQueryParameter("state"))) return;
-            state = "";
+            restore();
+            JSONObject pending = store.load("pending");
+            if (coldStart) resumeLink = pending.optString("link");
+            String state = pending.optString("state");
+            if (state.isEmpty() || System.currentTimeMillis() > pending.optLong("expires")) {
+                store.clear("pending");
+                status("This Spotify sign-in has expired. Start again from Pairwise.");
+                return;
+            }
+            if (!state.equals(uri.getQueryParameter("state"))) {
+                status("This Spotify response belongs to a different sign-in. Use the latest Spotify tab or start again.");
+                return;
+            }
+            store.clear("pending");
             String code = uri.getQueryParameter("code");
+            if (code == null || code.isEmpty() || code.length() > 2048) {
+                status("Spotify sign-in was canceled or denied.");
+                return;
+            }
+            status("Finishing Spotify sign-in…");
             try {
-                if (code == null || code.isEmpty() || code.length() > 2048) {
-                    status(!access.isEmpty(), "Spotify sign-in was canceled.");
-                    return;
-                }
+                String pendingClient = pending.getString("client");
                 JSONObject token = tokenRequest("grant_type=authorization_code&client_id=" + pendingClient
-                    + "&code=" + Uri.encode(code) + "&code_verifier=" + verifier + "&redirect_uri=" + Uri.encode(REDIRECT));
-                String newAccess = token.getString("access_token");
-                client = pendingClient;
-                refresh = token.optString("refresh_token");
-                access = newAccess;
-                expires = System.currentTimeMillis() + token.optLong("expires_in", 3600) * 1000;
-                status(true, "");
+                    + "&code=" + Uri.encode(code) + "&code_verifier=" + pending.getString("verifier")
+                    + "&redirect_uri=" + Uri.encode(REDIRECT));
+                acceptToken(token, pendingClient, "");
+                status(connected() ? lastStatus : "Spotify returned an empty session. Sign in again.");
             } catch (IOException | JSONException error) {
-                status(!access.isEmpty(), "Spotify sign-in failed. Check the Client ID and callback in your developer settings.");
-            } finally {
-                verifier = "";
-                pendingClient = "";
+                status("Spotify couldn’t finish sign-in. Start again from Pairwise.");
             }
         });
         return true;
@@ -109,9 +144,32 @@ final class SpotifyApi {
 
     void disconnect() {
         worker.execute(() -> {
-            client = access = refresh = state = verifier = pendingClient = "";
-            status(false, "Disconnected from Spotify.");
+            store.clear("pending");
+            clearSession();
+            status("Disconnected from Spotify.");
         });
+    }
+
+    private void clearSession() {
+        restored = true;
+        client = access = refresh = "";
+        expires = 0;
+        store.clear("session");
+    }
+
+    private void acceptToken(JSONObject token, String clientId, String oldRefresh) throws JSONException {
+        access = token.getString("access_token");
+        client = clientId;
+        refresh = token.optString("refresh_token", oldRefresh);
+        expires = System.currentTimeMillis() + token.optLong("expires_in", 3600) * 1000;
+        lastStatus = "";
+        if (refresh.isEmpty()) return;
+        try {
+            store.save("session", new JSONObject().put("client", client).put("refresh", refresh));
+        } catch (GeneralSecurityException | IOException error) {
+            store.clear("session");
+            lastStatus = "Spotify is connected for this session. Pairwise couldn’t save the connection.";
+        }
     }
 
     void fetchDetails(String key, String path) {
@@ -153,6 +211,10 @@ final class SpotifyApi {
                     details.put("entries", entries);
                 }
                 details(key, details, "");
+            } catch (SpotifySessionExpired error) {
+                clearSession();
+                details(key, new JSONObject(), error.getMessage());
+                status(error.getMessage());
             } catch (IOException error) {
                 details(key, new JSONObject(), error.getMessage());
             } catch (JSONException error) {
@@ -162,13 +224,17 @@ final class SpotifyApi {
     }
 
     private String accessToken() throws IOException, JSONException {
-        if (access.isEmpty() || System.currentTimeMillis() + 30_000 < expires) return access;
+        restore();
+        if (!access.isEmpty() && System.currentTimeMillis() + 30_000 < expires) return access;
         if (refresh.isEmpty()) return "";
-        JSONObject token = tokenRequest("grant_type=refresh_token&client_id=" + client + "&refresh_token=" + Uri.encode(refresh));
-        access = token.getString("access_token");
-        refresh = token.optString("refresh_token", refresh);
-        expires = System.currentTimeMillis() + token.optLong("expires_in", 3600) * 1000;
-        return access;
+        try {
+            JSONObject token = tokenRequest("grant_type=refresh_token&client_id=" + client + "&refresh_token=" + Uri.encode(refresh));
+            acceptToken(token, client, refresh);
+            return access;
+        } catch (SpotifySessionExpired error) {
+            clearSession();
+            throw error;
+        }
     }
 
     private static String artistNames(JSONObject track) {
@@ -206,7 +272,7 @@ final class SpotifyApi {
             }
             int status = connection.getResponseCode();
             if (status == 403) throw new IOException("Spotify restricts playlist tracks to owners and collaborators, and development apps to approved accounts.");
-            if (status == 401) throw new IOException("Spotify authorization expired. Reconnect your account.");
+            if (status == 401 || (form != null && status == 400)) throw new SpotifySessionExpired();
             if (status != 200) throw new IOException("Spotify details aren’t available right now.");
             return new JSONObject(new String(IncomingShare.read(connection.getInputStream(), 4 * 1024 * 1024), StandardCharsets.UTF_8));
         } catch (java.net.SocketTimeoutException error) {
@@ -226,9 +292,17 @@ final class SpotifyApi {
         return Base64.encodeToString(data, Base64.URL_SAFE | Base64.NO_WRAP | Base64.NO_PADDING);
     }
 
-    private void status(boolean connected, String message) {
-        activity.runOnUiThread(() -> activity.runScript("window.pairwiseSpotifyStatus?.("
-            + connected + "," + JSONObject.quote(message) + ")"));
+    private void status(String message) {
+        lastStatus = message;
+        if (!webReady) return;
+        String call = "window.pairwiseSpotifyStatus?.(" + connected() + "," + JSONObject.quote(message)
+            + "," + JSONObject.quote(store.clientId()) + "," + JSONObject.quote(resumeLink) + ")";
+        resumeLink = "";
+        activity.runOnUiThread(() -> activity.runScript(call));
+    }
+
+    private static final class SpotifySessionExpired extends IOException {
+        SpotifySessionExpired() { super("Spotify authorization expired. Sign in again."); }
     }
 
     private void details(String key, JSONObject result, String error) {

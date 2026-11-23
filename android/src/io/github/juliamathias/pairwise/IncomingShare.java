@@ -40,12 +40,13 @@ public final class IncomingShare {
     public void ready() {
         activity.runOnUiThread(() -> {
             ready = true;
+            spotify.ready();
             deliver();
         });
     }
 
-    void receive(Intent intent) {
-        if (intent == null || spotify.receive(intent) || !Intent.ACTION_SEND.equals(intent.getAction())) return;
+    void receive(Intent intent, boolean coldStart) {
+        if (intent == null || spotify.receive(intent, coldStart) || !Intent.ACTION_SEND.equals(intent.getAction())) return;
         String type = intent.getType();
         CharSequence extra = intent.getCharSequenceExtra(Intent.EXTRA_TEXT);
         String text = extra == null ? "" : extra.subSequence(0, Math.min(4096, extra.length())).toString();
@@ -127,7 +128,9 @@ public final class IncomingShare {
     }
 
     @JavascriptInterface
-    public void connectSpotify(String clientId) { spotify.connect(clientId); }
+    public void connectSpotify(String clientId, String link) {
+        spotify.connect(clientId, validLink(link) ? link : "");
+    }
 
     @JavascriptInterface
     public void disconnectSpotify() { spotify.disconnect(); }

@@ -71,4 +71,4 @@ Open [Create app in the Spotify Developer Dashboard](https://developer.spotify.c
 
 Tap **Save**. On the app’s dashboard page, open **Settings** and copy the **Client ID**. Share a Spotify song or playlist to Pairwise, open **Connect Spotify for artists and playlist tracks**, paste the Client ID, and tap **Sign in with Spotify**. A Client Secret is unnecessary.
 
-Spotify development mode requires a Premium app owner, and the playlist items endpoint is available to owners and collaborators. Pairwise reads up to the first 50 items and lets you pick four. The connection and tokens are kept in memory for the app session.
+Spotify development mode requires a Premium app owner, and the playlist items endpoint is available to owners and collaborators. Pairwise reads up to the first 50 items and lets you pick four. On Android 1.4.1 and later, Pairwise remembers your Client ID and saves your Spotify connection on the device. Use **Disconnect** to clear the connection. Spotify may ask you to approve access again when its authorization expires or is revoked.

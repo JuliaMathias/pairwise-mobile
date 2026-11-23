@@ -80,14 +80,14 @@ public final class MainActivity extends Activity {
         webView.addJavascriptInterface(incomingShare, "PairwiseShare");
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
         setContentView(root);
+        incomingShare.receive(getIntent(), true);
         webView.loadUrl(START);
-        incomingShare.receive(getIntent());
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        incomingShare.receive(intent);
+        incomingShare.receive(intent, false);
     }
 
     void runScript(String script) {

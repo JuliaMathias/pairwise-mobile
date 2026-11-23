@@ -428,16 +428,19 @@ export function createCutout(openCrop) {
 
   $('spotify-connect').onclick = () => {
     $('spotify-status').textContent = 'Opening Spotify sign-in…';
-    incoming?.connectSpotify($('spotify-client').value.trim());
+    incoming?.connectSpotify($('spotify-client').value.trim(), sharedLink);
   };
   $('spotify-disconnect').onclick = () => incoming?.disconnectSpotify();
-  globalThis.pairwiseSpotifyStatus = (connected, message) => {
+  globalThis.pairwiseSpotifyStatus = (connected, message, clientId, resumeLink) => {
+    if (clientId && !$('spotify-client').value.trim()) $('spotify-client').value = clientId;
+    if (resumeLink && !sharedLink) globalThis.pairwiseReceiveShare({ text: resumeLink });
     spotifyConnected = connected;
     $('spotify-summary').textContent = connected ? 'Spotify connected' : 'Connect Spotify for artists and playlist tracks';
     $('spotify-connect').hidden = connected;
     $('spotify-disconnect').hidden = !connected;
     $('spotify-client').parentElement.hidden = connected;
     $('spotify-status').textContent = message;
+    if (message && !connected) $('spotify-setup').open = true;
     if (connected) {
       $('spotify-setup').open = false;
       requestSpotifyDetails();
