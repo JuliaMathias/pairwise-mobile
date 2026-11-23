@@ -1,4 +1,4 @@
-import { detectCard, removeColor, spotifyTrackLink, visibleBounds } from './cutout-core.mjs';
+import { detectCard, removeColor, spotifyShareLink, visibleBounds } from './cutout-core.mjs';
 import { downloadBlob, encodePng, readPhotos } from './photos.mjs';
 import { safePrefix } from './core.mjs';
 
@@ -337,7 +337,7 @@ export function createCutout(openCrop) {
   };
 
   globalThis.pairwiseReceiveShare = async payload => {
-    const link = spotifyTrackLink(payload.text);
+    const link = spotifyShareLink(payload.text);
     if (!payload.image && !link && !payload.error && !payload.text) return;
     location.hash = 'cutout';
     sharedLink = link;

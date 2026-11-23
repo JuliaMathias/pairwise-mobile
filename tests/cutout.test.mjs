@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectCard, removeColor, spotifyTrackLink, visibleBounds } from '../dist/cutout-core.mjs';
+import { detectCard, removeColor, spotifyShareLink, visibleBounds } from '../dist/cutout-core.mjs';
 
 test('connected color removal preserves an isolated area of the same color', () => {
   const pixels = new Uint8ClampedArray([
@@ -35,7 +35,28 @@ test('finds the bounds of a centered story card with a gradient exterior', () =>
 
 test('only supported Spotify track and short links are extracted', () => {
   const track = 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT';
-  assert.equal(spotifyTrackLink(`Try ${track}?si=tracking`), track);
-  assert.equal(spotifyTrackLink('https://spotify.link/abc-DEF_123'), 'https://spotify.link/abc-DEF_123');
-  assert.equal(spotifyTrackLink('https://open.spotify.com.attacker.test/track/4cOdK2wGLETKBW3PvgPWqT'), '');
+  assert.equal(spotifyShareLink(`Try ${track}?si=tracking`), track);
+  assert.equal(spotifyShareLink('https://spotify.link/abc-DEF_123'), 'https://spotify.link/abc-DEF_123');
+  assert.equal(spotifyShareLink('https://open.spotify.com.attacker.test/track/4cOdK2wGLETKBW3PvgPWqT'), '');
+});
+
+test('Auto keeps the outer card when its square cover has stronger edges', () => {
+  const width = 150, height = 266;
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const frame = x >= 25 && x < 125 && y >= 57 && y < 209;
+      const cover = x >= 30 && x < 120 && y >= 62 && y < 152;
+      const tone = cover ? 210 : frame ? 45 : 73;
+      pixels.set([tone, tone, tone, 255], (y * width + x) * 4);
+    }
+  }
+  const card = detectCard(pixels, width, height);
+  assert.deepEqual(card, detectCard(pixels, width, height, 'song'));
+  assert.ok(Math.abs(card.height - 152) <= 6, JSON.stringify(card));
+});
+
+test('extracts playlist links without tracking or collaboration parameters', () => {
+  const playlist = 'https://open.spotify.com/intl-pt/playlist/2wuic8rJIJeD8CxedTzVMK';
+  assert.equal(spotifyShareLink(`My playlist: ${playlist}?si=a&pt=b`), playlist);
 });

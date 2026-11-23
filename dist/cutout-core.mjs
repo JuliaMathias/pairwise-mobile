@@ -54,6 +54,8 @@ function peaks(values, from, to, limit) {
 
 /** Finds continuous, centered rectangular boundaries in a downscaled story image. */
 export function detectCard(data, width, height, type = 'auto') {
+  if (type === 'playlist-cover') type = 'song';
+  if (type === 'playlist-tracklist') type = 'lyrics';
   if (width < 28 || height < 28) return null;
   function difference(x1, y1, x2, y2) {
     const a = (y1 * width + x1) * 4;
@@ -86,6 +88,7 @@ export function detectCard(data, width, height, type = 'auto') {
   const storyRatio = Math.abs(width / height - 9 / 16) < .015;
   let result = null;
   let best = 0;
+  const tallCandidates = [];
   for (const left of lefts) for (const right of rights) {
     const w = right - left;
     if (Math.abs(left + right - width) > width * .14) continue;
@@ -106,15 +109,35 @@ export function detectCard(data, width, height, type = 'auto') {
       const score = Math.min(...edge) + Math.min(...continuous) + edge.reduce((sum, value) => sum + value, 0) / 12
         + 42 * Math.sqrt(w * h / (width * height)) - 100 * Math.abs(left + right - width) / width
         - (storyRatio ? 44 : 0) * Math.abs(top + bottom - height) / height;
+      const bounds = { x: left, y: top, width: w, height: h };
+      if (type === 'auto' && w / h <= .89 && score > 0) tallCandidates.push({ bounds, score });
       if (score <= best) continue;
       best = score;
-      result = { x: left, y: top, width: w, height: h };
+      result = bounds;
+    }
+  }
+  // A high-contrast square cover can outscore the lower-contrast card around it.
+  // Only prefer an outer frame when the square is near its top, leaving room for metadata below.
+  if (type === 'auto' && result && result.width / result.height >= .90 && result.width / result.height <= 1.10) {
+    const cover = result;
+    let bestFrame = best * .30;
+    for (const { bounds: frame, score } of tallCandidates) {
+      const topGap = cover.y - frame.y;
+      const bottomGap = frame.y + frame.height - cover.y - cover.height;
+      const sideGap = cover.x - frame.x;
+      const otherSideGap = frame.x + frame.width - cover.x - cover.width;
+      if (score <= bestFrame || sideGap < -2 || otherSideGap < -2 ||
+          Math.abs(sideGap - otherSideGap) > cover.width * .12 ||
+          frame.width > cover.width * 1.30 || topGap < -2 || topGap > frame.height * .14 ||
+          bottomGap < cover.height * .20) continue;
+      bestFrame = score;
+      result = frame;
     }
   }
   return result;
 }
 
-export function spotifyTrackLink(text) {
-  const match = String(text ?? '').match(/https:\/\/(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?track\/[A-Za-z0-9]{22}|spotify\.link\/[A-Za-z0-9_-]+)(?=$|[\s?#<>"')\],.!])/i);
+export function spotifyShareLink(text) {
+  const match = String(text ?? '').match(/https:\/\/(?:open\.spotify\.com\/(?:intl-[a-z]{2}\/)?(?:track|playlist)\/[A-Za-z0-9]{22}|spotify\.link\/[A-Za-z0-9_-]+)(?=$|[\s?#<>"')\],.!])/i);
   return match ? new URL(match[0]).href : '';
 }
