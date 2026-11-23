@@ -22,6 +22,7 @@ function roundedRect(ctx, x, y, width, height, radius) {
 }
 
 const LYRIC_LINE_LIMIT = 15;
+const DEFAULT_LYRIC_LINES = 5;
 
 export function createCutout(openCrop) {
   const $ = id => document.getElementById(`cutout-${id}`);
@@ -43,6 +44,7 @@ export function createCutout(openCrop) {
   let spotifyConnected = false;
   let lookupSequence = 0;
   let lyricsMatches = [];
+  let selectedLyrics = null;
   let lyricsRequest = '';
   let spotifyRequest = '';
 
@@ -59,6 +61,7 @@ export function createCutout(openCrop) {
     $('entries').disabled = busy;
     $('lookup').disabled = busy || Boolean(lyricsRequest || spotifyRequest);
     $('entry-list').querySelectorAll('input').forEach(box => { box.disabled = busy; });
+    $('deselect-lyrics').disabled = busy || !$('entry-list').querySelector('input:checked');
     $('save').disabled = busy || !photo || (generatedCard && dirtyCard);
     $('load').disabled = busy;
     $('song').disabled = busy;
@@ -343,7 +346,7 @@ export function createCutout(openCrop) {
     $('lookup-status').textContent = message;
   }
 
-  function updateEntryList(preselect = true) {
+  function updateEntryList() {
     const layout = $('layout').value;
     const lyrics = layout === 'lyrics';
     const limit = lyrics ? LYRIC_LINE_LIMIT : 4;
@@ -355,20 +358,30 @@ export function createCutout(openCrop) {
     $('entry-hint').textContent = lyrics ? `Choose 1 to ${LYRIC_LINE_LIMIT} lines for the card.`
       : 'Enter one track per line as Title — Artist, then choose up to 4.';
     $('entry-list').replaceChildren();
+    $('deselect-lyrics').hidden = true;
     if (layout === 'cover') return;
     const entries = $('entries').value.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+    $('deselect-lyrics').hidden = !lyrics || !entries.length;
+    const occurrences = new Map();
     entries.forEach((line, index) => {
+      const occurrence = (occurrences.get(line) ?? 0) + 1;
+      occurrences.set(line, occurrence);
+      const key = `${occurrence}:${line}`;
       const row = document.createElement('label');
       row.className = 'cutout-check';
       const box = document.createElement('input');
       box.type = 'checkbox';
       box.value = line;
-      box.checked = preselect && index < limit;
+      box.dataset.lineKey = key;
+      box.checked = lyrics ? selectedLyrics?.has(key) ?? index < DEFAULT_LYRIC_LINES : index < limit;
       box.onchange = () => {
         if ($('entry-list').querySelectorAll('input:checked').length > limit) {
           box.checked = false;
           inform(`Choose up to ${limit} ${lyrics ? 'lines' : 'tracks'}.`);
           return;
+        }
+        if (lyrics) {
+          selectedLyrics = new Set(Array.from($('entry-list').querySelectorAll('input:checked'), input => input.dataset.lineKey));
         }
         markCardDirty();
       };
@@ -396,11 +409,16 @@ export function createCutout(openCrop) {
   }
 
   $('song').onclick = fetchShareCard;
+  $('deselect-lyrics').onclick = () => {
+    selectedLyrics = new Set();
+    $('entry-list').querySelectorAll('input:checked').forEach(box => { box.checked = false; });
+    markCardDirty();
+  };
   $('layout').onchange = () => {
     const layout = $('layout').value;
     $('entries').value = entryDraft[layout] ?? '';
     lookupStatus('');
-    updateEntryList(layout !== 'lyrics' || !lyricsMatches.length);
+    updateEntryList();
     if (layout === 'cover' || (layout === 'tracklist' && $('entries').value)) $('preview-card').click();
     else markCardDirty();
   };
@@ -544,7 +562,8 @@ export function createCutout(openCrop) {
     if (!$('creator').value.trim()) $('creator').value = recording.artistName;
     $('entries').value = recording.plainLyrics.slice(0, 16000);
     entryDraft.lyrics = $('entries').value;
-    updateEntryList(false);
+    selectedLyrics = null;
+    updateEntryList();
     markCardDirty();
     lookupStatus(`Lyrics from LRCLIB. Choose 1 to ${LYRIC_LINE_LIMIT} lines for the card.`);
   };
@@ -567,6 +586,7 @@ export function createCutout(openCrop) {
       $('creator-label').textContent = kind === 'playlist' ? 'Playlist creator (optional)' : 'Artist (optional)';
       $('creator').value = creator;
       entryDraft = { lyrics: '', tracklist: '' };
+      selectedLyrics = null;
       $('entries').value = '';
       updateEntryList();
       await renderShareCard();

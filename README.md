@@ -54,7 +54,7 @@ The Spotify wordmark in generated cards is from the [official Spotify design gui
 
 ### Spotify details and lyric lookup on Android
 
-Lyrics cards can search LRCLIB using the song title and an optional artist. Confirm the recording and select 1 to 15 lines. Results are kept in the current editor session. Paste lyrics manually when a recording is unavailable.
+Lyrics cards can search LRCLIB using the song title and an optional artist. The first five lines are selected when you load lyrics. Choose 1 to 15 lines, or tap **Deselect all** to start with an empty selection. Results are kept in the current editor session. Paste lyrics manually when a recording is unavailable.
 
 #### Create the Spotify Web API app
 
