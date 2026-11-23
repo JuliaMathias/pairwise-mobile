@@ -40,3 +40,38 @@ test('Android export sends exact bytes in bounded chunks and handles cancellatio
   await assert.rejects(downloadBlob(new Blob(['test']), 'joined.png'), /Write failed/);
   assert.equal(cancelled, 'export-id');
 });
+
+test('batch saving finishes each Android export and continues after a file fails', async () => {
+  const events = [];
+  let active;
+  globalThis.PairwiseAndroid = {
+    beginSave(name) {
+      assert.equal(active, undefined);
+      active = name;
+      events.push(`start ${name}`);
+      return name;
+    },
+    appendSave(id) { return id === active && id !== 'second.png'; },
+    finishSave(id) {
+      assert.equal(id, active);
+      setImmediate(() => {
+        events.push(`done ${id}`);
+        active = undefined;
+        globalThis.pairwiseAndroidSaveResult(id, 'saved');
+      });
+      return true;
+    },
+    cancelSave(id) {
+      events.push(`cancel ${id}`);
+      active = undefined;
+    },
+  };
+  const { saveImageFiles } = await import('../dist/photos.mjs?batch');
+  const images = ['first.png', 'second.png', 'third.png'].map(name => ({ name, blob: new Blob([name]) }));
+  assert.deepEqual(await saveImageFiles(images, index => events.push(`progress ${index}`)), ['saved', 'failed', 'saved']);
+  assert.deepEqual(events, [
+    'progress 1', 'start first.png', 'done first.png',
+    'progress 2', 'start second.png', 'cancel second.png',
+    'progress 3', 'start third.png', 'done third.png',
+  ]);
+});

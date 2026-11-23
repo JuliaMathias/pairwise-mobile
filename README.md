@@ -4,7 +4,7 @@ Pairwise is a phone-first prototype for joining images and making collages. Both
 
 ## Join images
 
-Use the sample images or select your own, choose a layout and group size, then save each joined PNG or download all outputs in a ZIP.
+Use the sample images or select your own, choose a layout and group size, then save a single PNG, save all images as separate PNGs, or download a ZIP. Browsers may prompt for permission to download multiple individual files.
 
 Pairwise starts in natural filename order. Drag an image by its grip or use the arrow buttons to reorder it across groups, and use **Sort by name** to restore filename order. Use **Crop** on any image to choose a freeform or fixed-ratio region. **Reset crop** restores the full image when applied.
 
@@ -33,7 +33,7 @@ node --check dist/app.mjs
 
 ## Android
 
-Pairwise for Android embeds the same editor offline, supports Android 11 and later, and uses the system photo and document pickers. It asks for access to the photos you select. PNG and ZIP exports use Android’s Save dialog.
+Pairwise for Android embeds the same editor offline, supports Android 11 and later, and uses the system photo picker. It asks for access to the photos you select. PNG and ZIP exports are saved directly to the shared Downloads folder.
 
 To build a signed APK, install Android SDK Platform 35 and Build Tools 36.0.0, set `ANDROID_SDK_ROOT`, and use JDK 17 or newer. Supply your private PKCS#12 or Java keystore through `PAIRWISE_KEYSTORE` and set `PAIRWISE_SIGNING_PASSWORD` in your environment. Set `PAIRWISE_KEY_ALIAS` if your signing alias differs from `pairwise`.
 

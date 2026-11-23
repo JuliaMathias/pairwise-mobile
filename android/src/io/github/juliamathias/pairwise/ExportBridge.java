@@ -1,6 +1,10 @@
 package io.github.juliamathias.pairwise;
 
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import java.io.File;
@@ -77,11 +81,8 @@ public final class ExportBridge {
         }
 
         Pending export = pending;
-        activity.runOnUiThread(() -> {
-            synchronized (ExportBridge.this) {
-                if (pending == export) activity.chooseExportLocation(export.name, export.mime);
-            }
-        });
+        export.copying = true;
+        writer.execute(() -> saveToDownloads(export));
         return true;
     }
 
@@ -90,39 +91,44 @@ public final class ExportBridge {
         if (matches(id) && !pending.copying) clear();
     }
 
-    synchronized void destination(Uri uri, String failure) {
-        if (pending == null || pending.stream != null || pending.copying) return;
-        Pending export = pending;
-        if (uri == null) {
-            clear();
-            activity.exportFinished(export.id, failure);
-            return;
-        }
-
-        export.copying = true;
-        writer.execute(() -> {
-            String result = "saved";
+    private void saveToDownloads(Pending export) {
+        ContentResolver resolver = activity.getContentResolver();
+        Uri uri = null;
+        String result = "saved";
+        try {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, export.name);
+            values.put(MediaStore.MediaColumns.MIME_TYPE, export.mime);
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/");
+            values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+            uri = resolver.insert(MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values);
+            if (uri == null) throw new IOException("Could not create download");
             try (FileInputStream source = new FileInputStream(export.file);
-                 OutputStream destination = activity.getContentResolver().openOutputStream(uri, "w")) {
-                if (destination == null) throw new IOException("Destination could not be opened");
+                 OutputStream destination = resolver.openOutputStream(uri, "w")) {
+                if (destination == null) throw new IOException("Could not open download");
                 byte[] buffer = new byte[65_536];
                 int count;
                 while ((count = source.read(buffer)) != -1) destination.write(buffer, 0, count);
-            } catch (IOException | SecurityException error) {
-                result = "Couldn't finish writing the file.";
+            }
+            values.clear();
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+            if (resolver.update(uri, values, null, null) != 1) throw new IOException("Could not publish download");
+        } catch (IOException | RuntimeException error) {
+            result = "Couldn’t save the file to Downloads.";
+            if (uri != null) {
                 try {
-                    android.provider.DocumentsContract.deleteDocument(activity.getContentResolver(), uri);
-                } catch (IOException | RuntimeException ignored) {
-                    // The document provider may not support removing a failed export.
-                }
-            } finally {
-                synchronized (this) {
-                    if (pending == export) clear();
+                    resolver.delete(uri, null, null);
+                } catch (RuntimeException ignored) {
+                    // A failed export must not prevent the next save.
                 }
             }
-            String status = result;
-            activity.runOnUiThread(() -> activity.exportFinished(export.id, status));
-        });
+        } finally {
+            synchronized (this) {
+                if (pending == export) clear();
+            }
+        }
+        String status = result;
+        activity.runOnUiThread(() -> activity.exportFinished(export.id, status));
     }
 
     synchronized void close() {

@@ -477,7 +477,7 @@ export function createCollage() {
         context.restore();
       }
       const result = await downloadBlob(await encodePng(canvas), `pairwise-collage-${width}x${height}.png`);
-      setStatus(result === 'saved' ? 'Collage saved.' : result === 'download' ? 'Collage download started.' : '');
+      setStatus(result === 'saved' ? 'Collage saved to Downloads.' : result === 'download' ? 'Collage download started.' : '');
     } catch {
       setStatus('Could not save this collage.', true);
     } finally {

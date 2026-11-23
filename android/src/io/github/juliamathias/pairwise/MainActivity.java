@@ -31,7 +31,6 @@ public final class MainActivity extends Activity {
     private static final String ROOT = "/app/";
     private static final String START = "https://" + HOST + ROOT + "index.html";
     private static final int PICK_PHOTOS = 41;
-    private static final int SAVE_DOCUMENT = 42;
 
     private WebView webView;
     private ExportBridge exportBridge;
@@ -114,16 +113,6 @@ public final class MainActivity extends Activity {
         return true;
     }
 
-    void chooseExportLocation(String name, String mime) {
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
-            .setType(mime).putExtra(Intent.EXTRA_TITLE, name);
-        try {
-            startActivityForResult(intent, SAVE_DOCUMENT);
-        } catch (ActivityNotFoundException unavailable) {
-            exportBridge.destination(null, "No file picker is available.");
-        }
-    }
-
     void exportFinished(String id, String status) {
         if (isFinishing() || isDestroyed()) return;
         webView.evaluateJavascript(
@@ -136,11 +125,6 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (request == SAVE_DOCUMENT) {
-            Uri destination = result == RESULT_OK && data != null ? data.getData() : null;
-            exportBridge.destination(isContent(destination) ? destination : null, destination == null ? "cancelled" : "Invalid destination.");
-            return;
-        }
         if (request != PICK_PHOTOS || photoCallback == null) return;
         ValueCallback<Uri[]> callback = photoCallback;
         photoCallback = null;

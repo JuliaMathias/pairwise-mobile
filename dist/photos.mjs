@@ -123,3 +123,23 @@ export async function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
   return 'download';
 }
+
+export async function saveImageFiles(images, onProgress = () => {}) {
+  const outcomes = [];
+  if (android) {
+    // The native bridge stages one file at a time.
+    for (const [index, image] of images.entries()) {
+      onProgress(index + 1);
+      try {
+        outcomes.push(await downloadBlob(image.blob, image.name));
+      } catch {
+        outcomes.push('failed');
+      }
+    }
+  } else {
+    // Request every browser download during the original click.
+    const results = await Promise.allSettled(images.map(image => downloadBlob(image.blob, image.name)));
+    for (const result of results) outcomes.push(result.status === 'fulfilled' ? result.value : 'failed');
+  }
+  return outcomes;
+}

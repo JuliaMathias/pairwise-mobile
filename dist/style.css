@@ -240,3 +240,15 @@ body:has(#crop-dialog[open]) { overflow: hidden; }
   background: #d4ef7955;
   pointer-events: none;
 }
+
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.result-actions button { flex: 1; white-space: nowrap; }
+.result-actions .add-primary { min-width: 0; }
+#save-status:not(:empty) { margin-top: 8px; }
+#save-status.error { color: #8a2c21; }

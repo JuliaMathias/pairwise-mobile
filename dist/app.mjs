@@ -1,7 +1,7 @@
 import { groupInOrder, makeZip, moveImage, outputFilename, safePrefix, sortByFilename, validOffset } from './core.mjs';
 import { createCropEditor } from './crop-editor.mjs';
 import { joinComposition } from './composer.mjs';
-import { android, downloadBlob, encodePng, readPhotos, sampleFiles } from './photos.mjs';
+import { android, downloadBlob, encodePng, readPhotos, sampleFiles, saveImageFiles } from './photos.mjs';
 import { createCollage } from './collage.mjs';
 
 const $ = id => document.getElementById(id);
@@ -10,7 +10,7 @@ const offsetField = $('number-offset');
 const nameField = $('output-name');
 const fileField = $('files');
 const directions = ['vertical', 'horizontal'];
-const busyControls = ['browse', 'sample', 'add', 'clear', 'sort', ...directions, 'group-size', 'output-name', 'number-offset', 'files', 'bundle', 'join-fill', 'join-color', 'join-border', 'join-border-color'];
+const busyControls = ['browse', 'sample', 'add', 'clear', 'sort', ...directions, 'group-size', 'output-name', 'number-offset', 'files', 'bundle', 'save-all', 'join-fill', 'join-color', 'join-border', 'join-border-color'];
 let images = [];
 let outputs = [];
 let direction = 'vertical';
@@ -31,6 +31,11 @@ function node(tag, className, text) {
 function message(text, error = false) {
   $('status').textContent = text;
   $('status').classList.toggle('error', error);
+}
+
+function saveMessage(text, error = false) {
+  $('save-status').textContent = text;
+  $('save-status').classList.toggle('error', error);
 }
 
 function groupSize() {
@@ -82,6 +87,7 @@ function clearOutputs() {
   for (const output of outputs) URL.revokeObjectURL(output.url);
   outputs = [];
   $('result-grid').replaceChildren();
+  saveMessage('');
   $('results').hidden = true;
 }
 
@@ -332,12 +338,12 @@ function resultCard(output) {
       event.preventDefault();
       if (busy) return;
       setBusy(true);
-      message('Preparing your PNG…');
+      saveMessage('Saving PNG…');
       try {
         const result = await downloadBlob(output.blob, output.name);
-        message(result === 'saved' ? 'PNG saved.' : '');
+        saveMessage(result === 'saved' ? 'PNG saved to Downloads.' : '');
       } catch (error) {
-        message(error.message, true);
+        saveMessage(error.message, true);
       } finally {
         setBusy(false);
       }
@@ -373,15 +379,36 @@ $('generate').onclick = async () => {
   }
 };
 
-$('bundle').onclick = async () => {
+$('save-all').onclick = async () => {
+  if (busy || !outputs.length) return;
   setBusy(true);
-  message('Preparing your ZIP…');
+  saveMessage('Saving images…');
+  try {
+    const outcomes = await saveImageFiles(outputs, current => {
+      saveMessage(`Saving image ${current} of ${outputs.length}…`);
+    });
+    const completed = outcomes.filter(outcome => outcome === (android ? 'saved' : 'download')).length;
+    const failed = outcomes.length - completed;
+    const summary = android
+      ? `Saved ${completed} of ${outcomes.length} images to Downloads.`
+      : `Requested ${completed} downloads. Allow multiple downloads if your browser asks.`;
+    saveMessage(failed ? `${summary} ${failed} couldn’t be saved.` : summary, failed > 0);
+  } finally {
+    setBusy(false);
+    $('save-all').focus({ preventScroll: true });
+  }
+};
+
+$('bundle').onclick = async () => {
+  if (busy || !outputs.length) return;
+  setBusy(true);
+  saveMessage('Preparing your ZIP…');
   try {
     const prefix = safePrefix(nameField.value);
     const result = await downloadBlob(await makeZip(outputs), prefix ? `${prefix}.zip` : 'pairwise-images.zip');
-    message(result === 'saved' ? 'ZIP saved.' : result === 'download' ? 'ZIP download started.' : '');
+    saveMessage(result === 'saved' ? 'ZIP saved to Downloads.' : result === 'download' ? 'ZIP download requested.' : '');
   } catch (error) {
-    message(error.message, true);
+    saveMessage(error.message, true);
   } finally {
     setBusy(false);
     $('bundle').focus({ preventScroll: true });
